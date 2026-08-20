@@ -1,0 +1,12 @@
+version: '2.4'
+
+services:
+  frontend:
+    image: compas_amocrm_destribute.dev:latest
+    container_name: compas_amocrm_destribute
+    ports:
+      - "9012:9012"
+    volumes:
+      - ./:/opt/app
+    build: .
+    command: npm i

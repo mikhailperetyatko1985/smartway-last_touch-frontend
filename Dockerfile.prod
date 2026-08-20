@@ -1,0 +1,11 @@
+FROM node:14.17.0-alpine AS build
+RUN apk add --no-cache zip
+RUN mkdir /opt/app
+WORKDIR /opt/app
+COPY package*.json ./
+RUN npm i
+COPY . .
+RUN npm run build
+RUN mkdir /tmp/widget
+RUN cp ./build/widget.zip /tmp/
+CMD ["sh"]

@@ -1,0 +1,14 @@
+FROM node:14.17.0-alpine AS build
+RUN apk add --no-cache zip
+RUN mkdir /opt/app
+WORKDIR /opt/app
+COPY package*.json ./
+RUN npm i
+COPY ./src/development/proxy.js ./src/development/proxy.js
+COPY ./static ./static
+RUN mkdir /tmp/widget
+RUN cp -r ./static/* /tmp/widget
+RUN cp ./src/development/proxy.js /tmp/widget/script.js
+RUN cd /tmp/widget/ && zip -r /tmp/widget.zip *
+COPY . .
+CMD ["npm", "run", "dev"]

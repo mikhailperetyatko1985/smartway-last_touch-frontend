@@ -1,0 +1,56 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "node": false,
+    "jquery": true
+  },
+  "extends": [
+    "airbnb-base",
+    "airbnb/hooks",
+    "plugin:react/recommended"
+  ],
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "globals": {},
+  "settings": {
+    "import/resolver": {
+      "node": {
+        "paths": [
+          "src"
+        ],
+        "extensions": [
+          "js"
+        ]
+      }
+    }
+  },
+  "ignorePatterns": [
+    "webpack.config.js",
+    "deploy.config.js",
+    "script.js",
+    "index.js"
+  ],
+  "rules": {
+    "no-plusplus": "off",
+    "dot-notation": "off",
+    "no-alert": "error",
+    "import/extensions": [
+      "error",
+      "never"
+    ],
+    "import/no-unresolved": "off",
+    "semi": [
+      "warn",
+      "always"
+    ],
+    "class-methods-use-this": "off",
+    "no-underscore-dangle": "off",
+    "no-param-reassign": "off",
+    "react-hooks/exhaustive-deps":  "off",
+    "react/prop-types": "off",
+    "import/prefer-default-export": "off"
+  }
+}

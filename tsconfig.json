@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./src",
+    "target": "esnext",
+    "module": "esnext",
+    "strict": true,
+    "jsx": "preserve",
+    "moduleResolution": "node",
+    "paths": {
+      "@api": ["api/*"],
+      "@stores": ["stores/*"],
+      "@types": ["types/*"],
+      "@interfaces": ["interfaces/*"],
+      "@entities": ["entities/*"],
+      "@drivers": ["drivers/*"],
+      "@components": ["components/*"],
+      "@helpers": ["helpers/*"],
+    },
+  },
+  "exclude": ["node_modules", "**/node_modules/*", "build"],
+  "include": ["src/**/*"]
+}
