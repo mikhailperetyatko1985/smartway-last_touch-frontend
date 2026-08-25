@@ -11,6 +11,8 @@ import { ISettingsList } from 'interfaces/ISettingsList';
 import { Nullable } from 'types/language';
 //@ts-ignore
 import SettingsSetLongLivedTokenModal from 'components/modals/SettingsSetLongLivedTokenModal.vue';
+// @ts-ignore
+import LastTouchSettingsModal from 'components/modals/LastTouchSettingsModal.vue';
 //@ts-ignore
 import UiButton from 'components/base/UiButton.vue';
 import { closeModal, container as WidgetContainerModal, openModal } from 'jenesius-vue-modal';
@@ -18,6 +20,7 @@ import { closeModal, container as WidgetContainerModal, openModal } from 'jenesi
 import UiText from 'components/base/UiText.vue';
 const isOpenSetOauthModal = ref(false);
 const isOpenSetLongLivedModal = ref(false);
+const isOpenLastTouchSettingsModal = ref(false);
 
 const { getApi, showError } = useAmoCrmStore();
 const pendingStatus = reactive({
@@ -82,6 +85,23 @@ watch(
     },
 );
 
+watch(
+    () => isOpenLastTouchSettingsModal.value,
+    async (value) => {
+        if (!value) return;
+        const modal = await openModal(LastTouchSettingsModal, {});
+        modal.on('close', () => {
+            closeModal();
+        });
+        modal.on('apply', () => {
+            closeModal();
+        });
+        modal.onclose = () => {
+            isOpenLastTouchSettingsModal.value = false;
+        };
+    },
+);
+
 getSettings();
 
 </script>
@@ -108,6 +128,7 @@ getSettings();
         </ui-flex-container>
         <ui-button label="Установить долгосрочный токен доступа" @click="isOpenSetLongLivedModal = true" />
         <ui-button label="Установить временный токен доступа" @click="isOpenSetOauthModal = true" />
+        <ui-button label="Настройки последнего касания" @click="isOpenLastTouchSettingsModal = true" />
         <widget-container-modal :class="$style.modalContainer" />
     </ui-flex-container>
 </template>

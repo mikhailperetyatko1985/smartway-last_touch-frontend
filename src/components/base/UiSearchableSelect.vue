@@ -17,6 +17,10 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    clearable: {
+        type: Boolean,
+        default: true,
+    },
 });
 
 const emit = defineEmits(['update:modelValue']);

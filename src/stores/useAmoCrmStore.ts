@@ -5,6 +5,7 @@ import { reactive, computed } from 'vue';
 import { ISettingsApi } from 'interfaces/ISettingsApi';
 import { IPipelineApi } from 'interfaces/IPipelineApi';
 import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
+import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
 
 const instance = reactive({
     widget: null,
@@ -25,12 +26,14 @@ export function useAmoCrmStore() {
         settingsApi: ISettingsApi,
         pipelineApi: IPipelineApi,
         privilegesApi: IPrivilegesApi,
+        lastTouchSettingsApi: ILastTouchSettingsApi,
     ) => {
         instance.api = {
             managerApi: managerApi,
             settingsApi: settingsApi,
             pipelineApi: pipelineApi,
             privilegesApi: privilegesApi,
+            lastTouchSettingsApi: lastTouchSettingsApi,
         };
     };
 

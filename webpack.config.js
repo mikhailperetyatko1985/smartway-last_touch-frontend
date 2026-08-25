@@ -95,6 +95,8 @@ module.exports = {
       'drivers': path.resolve(__dirname, './src/drivers'),
       'helpers': path.resolve(__dirname, './src/helpers'),
       'enums': path.resolve(__dirname, './src/enums'),
+      'constants': path.resolve(__dirname, './src/constants'),
+      'composables': path.resolve(__dirname, './src/composables'),
     },
   },
   plugins: [
