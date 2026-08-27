@@ -1,6 +1,7 @@
 import {
   ICallDurationMap,
   IFunnelEntry,
+  IFunnelEntryPayload,
   ILastTouchFormState,
   ILastTouchSettingsPayload,
 } from 'interfaces/ILastTouchSettings';
@@ -25,65 +26,77 @@ const safeNumberList = (values: unknown[]): number[] =>
     return acc;
   }, []);
 
+const safeDurationMap = (value: unknown): ICallDurationMap => {
+  const result: ICallDurationMap = {};
+  if (value === null || typeof value !== 'object') {
+    return result;
+  }
+  Object.keys(value as Record<string, unknown>).forEach((key) => {
+    const status = Number(key);
+    if (Number.isNaN(status)) {
+      return;
+    }
+    const raw = (value as Record<string, unknown>)[key];
+    const sec = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isNaN(sec)) {
+      result[status] = sec;
+    }
+  });
+  return result;
+};
+
+const mapFunnelFromApi = (entry: IFunnelEntryPayload): IFunnelEntry => ({
+  pipelineId: Number(entry.pipeline_id),
+  statusIds: dedupeNumbers(safeNumberList(entry.status_ids ?? [])),
+  callStatuses: dedupeNumbers(safeNumberList(entry.call_statuses ?? [])),
+  minCallDurations: safeDurationMap(entry.min_call_duration_sec_by_status ?? {}),
+  disabledTouchTypes: entry.disabled_touch_types === null || entry.disabled_touch_types === undefined
+    ? []
+    : [...entry.disabled_touch_types],
+  responsibleCustomFieldId: entry.responsible_custom_field_id ?? null,
+});
+
 export function fromApiResponse(payload: ILastTouchSettingsPayload): ILastTouchFormState {
   const funnels: IFunnelEntry[] = payload.funnels === null
     ? []
-    : payload.funnels.map((entry) => ({
-        pipelineId: Number(entry.pipeline_id),
-        statusIds: dedupeNumbers(safeNumberList(entry.status_ids)),
-      }));
-
-  const callStatuses = payload.call_statuses === null
-    ? []
-    : dedupeNumbers(safeNumberList(payload.call_statuses));
-
-  const minCallDurations: ICallDurationMap = {};
-  const durationMap = payload.min_call_duration_sec_by_status;
-  if (durationMap !== null) {
-    Object.keys(durationMap).forEach((key) => {
-      const status = Number(key);
-      if (Number.isNaN(status)) {
-        return;
-      }
-      const value = durationMap[key];
-      const sec = typeof value === 'number' ? value : Number(value);
-      if (!Number.isNaN(sec)) {
-        minCallDurations[status] = sec;
-      }
-    });
-  }
+    : payload.funnels.map(mapFunnelFromApi);
 
   return {
     funnels,
-    callStatuses,
-    minCallDurations,
     customFieldId: payload.custom_field_id ?? null,
-    disabledTouchTypes: payload.disabled_touch_types === null ? [] : [...payload.disabled_touch_types],
   };
 }
 
-export function toApiPayload(form: ILastTouchFormState): ILastTouchSettingsPayload {
-  const funnels = form.funnels
-    .filter((f) => f.statusIds.length > 0)
-    .map((f) => ({ pipeline_id: f.pipelineId, status_ids: dedupeNumbers(f.statusIds) }));
-
+const mapFunnelToApi = (f: IFunnelEntry): IFunnelEntryPayload => {
   const minCallDurations: Record<string, number> = {};
-  form.callStatuses.forEach((status) => {
-    if (!Object.prototype.hasOwnProperty.call(form.minCallDurations, status)) {
+  f.callStatuses.forEach((status) => {
+    if (!Object.prototype.hasOwnProperty.call(f.minCallDurations, status)) {
       return;
     }
-    const sec = form.minCallDurations[status];
+    const sec = f.minCallDurations[status];
     if (Number.isInteger(sec) && sec >= 0) {
       minCallDurations[String(status)] = sec;
     }
   });
 
   return {
+    pipeline_id: f.pipelineId,
+    status_ids: dedupeNumbers(f.statusIds),
+    call_statuses: dedupeNumbers(f.callStatuses),
+    min_call_duration_sec_by_status: minCallDurations,
+    disabled_touch_types: [...f.disabledTouchTypes],
+    responsible_custom_field_id: f.responsibleCustomFieldId,
+  };
+};
+
+export function toApiPayload(form: ILastTouchFormState): ILastTouchSettingsPayload {
+  const funnels = form.funnels
+    .filter((f) => f.statusIds.length > 0)
+    .map(mapFunnelToApi);
+
+  return {
     funnels: funnels.length ? funnels : null,
-    call_statuses: form.callStatuses.length ? dedupeNumbers(form.callStatuses) : null,
-    min_call_duration_sec_by_status: Object.keys(minCallDurations).length ? minCallDurations : null,
     custom_field_id: form.customFieldId ?? null,
-    disabled_touch_types: form.disabledTouchTypes.length ? [...form.disabledTouchTypes] : null,
   };
 }
 
@@ -117,24 +130,9 @@ function arraysEqual(a: unknown[], b: unknown[]): boolean {
   return a.every((item, index) => deepEqual(item, b[index]));
 }
 
-const mapsEqual = (a: ICallDurationMap, b: ICallDurationMap): boolean => {
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) {
-    return false;
-  }
-  return keysA.every(
-    (key) =>
-      Object.prototype.hasOwnProperty.call(b, key) && a[Number(key)] === b[Number(key)],
-  );
-};
-
 export function isFormDirty(form: ILastTouchFormState, baseline: ILastTouchFormState): boolean {
   return (
     !arraysEqual(form.funnels, baseline.funnels) ||
-    !arraysEqual(form.callStatuses, baseline.callStatuses) ||
-    !mapsEqual(form.minCallDurations, baseline.minCallDurations) ||
-    form.customFieldId !== baseline.customFieldId ||
-    !arraysEqual(form.disabledTouchTypes, baseline.disabledTouchTypes)
+    form.customFieldId !== baseline.customFieldId
   );
 }

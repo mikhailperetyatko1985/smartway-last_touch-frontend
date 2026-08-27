@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { useLastTouchSettings } from 'composables/useLastTouchSettings';
-import { ICallDurationMap } from 'interfaces/ILastTouchSettings';
 // @ts-ignore
 import UiModalContainer from 'components/base/UiModalContainer.vue';
 // @ts-ignore
@@ -13,22 +12,13 @@ import UiFlexContainer from 'components/base/UiFlexContainer.vue';
 // @ts-ignore
 import LastTouchFunnelsSection from 'components/modals/lasttouch/LastTouchFunnelsSection.vue';
 // @ts-ignore
-import LastTouchCallStatusesSection from 'components/modals/lasttouch/LastTouchCallStatusesSection.vue';
-// @ts-ignore
 import LastTouchCustomFieldSection from 'components/modals/lasttouch/LastTouchCustomFieldSection.vue';
-// @ts-ignore
-import LastTouchDisabledTypesSection from 'components/modals/lasttouch/LastTouchDisabledTypesSection.vue';
 
 const { form, pipelines, customFields, isLoading, isSaving, apiError, load, save, resetToBaseline, clearError } = useLastTouchSettings();
 
 const emit = defineEmits(['apply', 'close']);
 
 onMounted(load);
-
-const onCallStatusesUpdate = (value: { statuses: number[]; durations: ICallDurationMap }) => {
-    form.value.callStatuses = value.statuses;
-    form.value.minCallDurations = value.durations;
-};
 
 const onSave = async (): Promise<void> => {
     if (isSaving.value) return;
@@ -52,7 +42,7 @@ const onClose = (): void => {
     <ui-modal-container @close="onClose">
         <ui-flex-container direction="col" row-gap="rg12">
             <ui-text text="Настройки последнего касания" size="fs400" weight="fw600" />
-            <ui-text text="Изменения применяются ко всему amo-аккаунту" size="fs100" />
+            <ui-text text="Настройки задаются в разрезе воронок" size="fs100" />
         </ui-flex-container>
 
         <!-- Прокручиваемая область: skeleton или баннер + секции -->
@@ -73,21 +63,14 @@ const onClose = (): void => {
                 <ui-flex-container direction="col" row-gap="rg12">
                     <last-touch-funnels-section
                         :pipelines="pipelines"
+                        :custom-fields="customFields"
                         :model-value="form.funnels"
                         @update:model-value="form.funnels = $event"
-                    />
-                    <last-touch-call-statuses-section
-                        :model-value="{ statuses: form.callStatuses, durations: form.minCallDurations }"
-                        @update:model-value="onCallStatusesUpdate"
                     />
                     <last-touch-custom-field-section
                         :fields="customFields"
                         :model-value="form.customFieldId"
                         @update:model-value="form.customFieldId = $event"
-                    />
-                    <last-touch-disabled-types-section
-                        :model-value="form.disabledTouchTypes"
-                        @update:model-value="form.disabledTouchTypes = $event"
                     />
                 </ui-flex-container>
             </template>

@@ -10,18 +10,19 @@ const { getApi } = useAmoCrmStore();
 
 const emptyForm = (): ILastTouchFormState => ({
   funnels: [],
-  callStatuses: [],
-  minCallDurations: {},
   customFieldId: null,
-  disabledTouchTypes: [],
 });
 
 const cloneForm = (f: ILastTouchFormState): ILastTouchFormState => ({
-  funnels: f.funnels.map((entry) => ({ pipelineId: entry.pipelineId, statusIds: [...entry.statusIds] })),
-  callStatuses: [...f.callStatuses],
-  minCallDurations: { ...f.minCallDurations },
+  funnels: f.funnels.map((entry) => ({
+    pipelineId: entry.pipelineId,
+    statusIds: [...entry.statusIds],
+    callStatuses: [...entry.callStatuses],
+    minCallDurations: { ...entry.minCallDurations },
+    disabledTouchTypes: [...entry.disabledTouchTypes],
+    responsibleCustomFieldId: entry.responsibleCustomFieldId,
+  })),
   customFieldId: f.customFieldId,
-  disabledTouchTypes: [...f.disabledTouchTypes],
 });
 
 export function useLastTouchSettings() {

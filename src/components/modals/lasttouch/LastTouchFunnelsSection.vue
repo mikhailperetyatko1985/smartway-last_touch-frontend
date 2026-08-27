@@ -2,13 +2,24 @@
 import { computed } from 'vue';
 import type { PropType } from 'vue';
 import { IPipeline } from 'interfaces/IPipeline';
-import { IFunnelEntry } from 'interfaces/ILastTouchSettings';
+import { IFunnelEntry, ICallDurationMap } from 'interfaces/ILastTouchSettings';
+import { ICustomField } from 'interfaces/ICustomField';
 // @ts-ignore
 import UiSearchableSelect from 'components/base/UiSearchableSelect.vue';
+// @ts-ignore
+import LastTouchCallStatusesSection from 'components/modals/lasttouch/LastTouchCallStatusesSection.vue';
+// @ts-ignore
+import LastTouchDisabledTypesSection from 'components/modals/lasttouch/LastTouchDisabledTypesSection.vue';
+// @ts-ignore
+import LastTouchResponsibleFieldSection from 'components/modals/lasttouch/LastTouchResponsibleFieldSection.vue';
 
 const props = defineProps({
     pipelines: {
         type: Array as PropType<IPipeline[]>,
+        default: () => [],
+    },
+    customFields: {
+        type: Array as PropType<ICustomField[]>,
         default: () => [],
     },
     modelValue: {
@@ -55,10 +66,8 @@ const getOptionsForRow = (index: number): { value: number; label: string }[] => 
 
 const isStatusOn = (row: IFunnelEntry, statusId: number): boolean => row.statusIds.includes(Number(statusId));
 
-// Счётчик «выбрано / всего» для строки — помогает ориентироваться при 20-30 статусах.
 const selectedCount = (row: IRowViewModel): number => row.entry.statusIds.length;
 
-// Выбранные id, которых уже нет в воронке (удалены в amoCRM) — показываем явно, чтобы ничего не потерялось.
 const missingStatusIds = (row: IRowViewModel): number[] => {
     if (!row.pipeline) return [];
     const known = new Set<number>(row.pipeline.statuses.map(s => Number(s.id)));
@@ -70,7 +79,6 @@ const toggleAllStatuses = (index: number, selectAll: boolean): void => {
     if (!row) return;
     const pipeline = rowsView.value[index]?.pipeline;
     const knownIds = pipeline ? pipeline.statuses.map(s => Number(s.id)) : [];
-    // Иностранные id (не найденные в воронке) сохраняем как есть.
     const foreignIds = row.statusIds.filter(id => !knownIds.includes(Number(id)));
     const nextStatusIds = selectAll ? [...knownIds, ...foreignIds] : foreignIds;
     const nextRows = props.modelValue.map((r, i): IFunnelEntry => (i === index ? { ...r, statusIds: nextStatusIds } : r));
@@ -81,7 +89,6 @@ const isAllSelected = (row: IRowViewModel): boolean =>
     !!row.pipeline && row.pipeline.statuses.length > 0 &&
     row.pipeline.statuses.every(s => row.entry.statusIds.includes(Number(s.id)));
 
-// Оборона от null/неизвестного значения — строка без валидной воронки не сохраняется.
 const handlePipelineChange = (index: number) => (value: number | string | null): void => {
     if (value === null || value === undefined) {
         removeRow(index);
@@ -94,7 +101,7 @@ const handlePipelineChange = (index: number) => (value: number | string | null):
     }
     const nextRows = props.modelValue.map((row, i): IFunnelEntry => {
         if (i === index) {
-            return { pipelineId, statusIds: [] };
+            return { ...row, pipelineId, statusIds: [] };
         }
         return { ...row, statusIds: [...row.statusIds] };
     });
@@ -124,14 +131,46 @@ const addRow = (): void => {
     const usedIds = new Set<number>(props.modelValue.map(r => Number(r.pipelineId)));
     const freePipeline = pipelineList.value.find(p => !usedIds.has(Number(p.id)));
     if (!freePipeline) return;
-    emit('update:modelValue', [...props.modelValue, { pipelineId: Number(freePipeline.id), statusIds: [] }]);
+    emit('update:modelValue', [...props.modelValue, {
+        pipelineId: Number(freePipeline.id),
+        statusIds: [],
+        callStatuses: [],
+        minCallDurations: {},
+        disabledTouchTypes: [],
+        responsibleCustomFieldId: null,
+    }]);
+};
+
+const callValue = (row: IRowViewModel): { statuses: number[]; durations: ICallDurationMap } => ({
+    statuses: row.entry.callStatuses,
+    durations: row.entry.minCallDurations,
+});
+
+const updateCall = (index: number, value: { statuses: number[]; durations: ICallDurationMap }): void => {
+    emit('update:modelValue', props.modelValue.map((r, i): IFunnelEntry => (
+        i === index
+            ? { ...r, callStatuses: [...value.statuses], minCallDurations: { ...value.durations } }
+            : r
+    )));
+};
+
+const updateTypes = (index: number, value: string[]): void => {
+    emit('update:modelValue', props.modelValue.map((r, i): IFunnelEntry => (
+        i === index ? { ...r, disabledTouchTypes: [...value] } : r
+    )));
+};
+
+const updateResponsible = (index: number, value: number | null): void => {
+    emit('update:modelValue', props.modelValue.map((r, i): IFunnelEntry => (
+        i === index ? { ...r, responsibleCustomFieldId: value } : r
+    )));
 };
 </script>
 
 <template>
     <div :class="$style.card">
-        <div :class="$style.title">ВОРОНКИ И СТАТУСЫ СДЕЛОК</div>
-        <div :class="$style.hint">Пусто = касания считаются по всем воронкам и статусам.</div>
+        <div :class="$style.title">ВОРОНКИ И НАСТРОЙКИ</div>
+        <div :class="$style.hint">Пусто = касания считаются по всем воронкам. Для каждой воронки настройте статусы, звонки, типы касаний и доп. ответственного.</div>
 
         <div v-if="!pipelineList.length" :class="$style.emptyHint">Нет доступных воронок.</div>
 
@@ -190,6 +229,22 @@ const addRow = (): void => {
 
                 <div v-if="!row.entry.statusIds.length" :class="$style.rowWarn">
                     Отметьте хотя бы один статус — без статуса воронка не будет учитываться.
+                </div>
+
+                <div :class="$style.subSections">
+                    <last-touch-call-statuses-section
+                        :model-value="callValue(row)"
+                        @update:model-value="(v) => updateCall(row.index, v)"
+                    />
+                    <last-touch-disabled-types-section
+                        :model-value="row.entry.disabledTouchTypes"
+                        @update:model-value="(v) => updateTypes(row.index, v)"
+                    />
+                    <last-touch-responsible-field-section
+                        :fields="customFields"
+                        :model-value="row.entry.responsibleCustomFieldId"
+                        @update:model-value="(v) => updateResponsible(row.index, v)"
+                    />
                 </div>
             </template>
         </div>
@@ -365,6 +420,13 @@ const addRow = (): void => {
     color: #ff8a00;
     line-height: 1.4;
     margin-top: 6px;
+}
+
+.subSections {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
 }
 
 .addBtn {
