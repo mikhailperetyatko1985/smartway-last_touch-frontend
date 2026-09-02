@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { useAmoCrmStore } from 'stores/useAmoCrmStore';
 import { ILastTouchInteraction, ILastTouchInteractionsFilters, ILastTouchInteractionsMeta, ILastTouchInteractionsQuery } from 'interfaces/ILastTouchInteractions';
+import { ILastTouchInteractionsSort, LastTouchSortField } from 'constants/lastTouch';
 
 const { getApi } = useAmoCrmStore();
 
@@ -51,6 +52,9 @@ const emptyFilters = (): ILastTouchInteractionsFilters => ({
   createdAtTo: '',
 });
 
+// Базовая сортировка бэкенда (touched_at DESC, id DESC) — параметры sort_by/sort_dir не отправляются
+const emptySort = (): ILastTouchInteractionsSort => ({ sortBy: null, sortDir: 'asc' });
+
 const cloneFilters = (f: ILastTouchInteractionsFilters): ILastTouchInteractionsFilters => ({
   leadIds: [...f.leadIds],
   managerIds: [...f.managerIds],
@@ -65,6 +69,7 @@ const cloneFilters = (f: ILastTouchInteractionsFilters): ILastTouchInteractionsF
 
 export function useLastTouchInteractions() {
   const filters = ref<ILastTouchInteractionsFilters>(emptyFilters());
+  const sort = ref<ILastTouchInteractionsSort>(emptySort());
   const page = ref(1);
   const perPage = ref(DEFAULT_PER_PAGE);
   const items = ref<ILastTouchInteraction[]>([]);
@@ -114,6 +119,11 @@ export function useLastTouchInteractions() {
     }
     if (f.createdAtTo) {
       query.createdAtTo = f.createdAtTo;
+    }
+    // сортировка отправляется только когда активна — иначе бэкенд применяет базовую
+    if (sort.value.sortBy !== null) {
+      query.sortBy = sort.value.sortBy;
+      query.sortDir = sort.value.sortDir;
     }
     return query;
   };
@@ -209,12 +219,28 @@ export function useLastTouchInteractions() {
     fetchPage();
   };
 
+  // Клик по шапке столбца: asc -> desc -> off (базовая сортировка бэкенда).
+  // Другой столбец всегда начинает цикл с asc. Пагинация сбрасывается на 1-ю, как для фильтров.
+  const toggleSort = (field: LastTouchSortField): void => {
+    if (sort.value.sortBy === field) {
+      sort.value = sort.value.sortDir === 'asc'
+        ? { sortBy: field, sortDir: 'desc' }
+        : emptySort();
+    } else {
+      sort.value = { sortBy: field, sortDir: 'asc' };
+    }
+    cancelHumanTextDebounce();
+    page.value = 1;
+    fetchPage();
+  };
+
   const clearError = (): void => {
     errorBanner.value = null;
   };
 
   return {
     filters,
+    sort,
     page,
     perPage,
     items,
@@ -229,6 +255,7 @@ export function useLastTouchInteractions() {
     resetFilters,
     goPage,
     setPerPage,
+    toggleSort,
     clearError,
   };
 }

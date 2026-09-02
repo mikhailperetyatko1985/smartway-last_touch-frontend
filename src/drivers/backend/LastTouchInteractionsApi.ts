@@ -78,6 +78,11 @@ export class LastTouchInteractionsApi implements ILastTouchInteractionsApi {
       if (query.perPage !== undefined && query.perPage >= 1) {
         payload.per_page = query.perPage;
       }
+      // сортировка отправляется только когда активна — иначе бэкенд применяет базовую (touched_at DESC, id DESC)
+      if (query.sortBy !== undefined) {
+        payload.sort_by = query.sortBy;
+        payload.sort_dir = query.sortDir ?? 'asc';
+      }
 
       const response = await sendRequest(this.host + api.interactions, MethodsEnum.get, payload);
       return response as ILastTouchInteractionsResponse;

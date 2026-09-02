@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import type { ILastTouchInteractionsFilters } from 'interfaces/ILastTouchInteractions';
+import type { LastTouchSortField } from 'constants/lastTouch';
 import { useLastTouchInteractions, countActiveFilters } from 'composables/useLastTouchInteractions';
 // @ts-ignore
 import UiModalContainer from 'components/base/UiModalContainer.vue';
@@ -14,8 +15,8 @@ import InteractionsFiltersPanel from 'components/modals/lasttouch/InteractionsFi
 import InteractionsTable from 'components/modals/lasttouch/InteractionsTable.vue';
 
 const {
-    filters, page, perPage, items, isLoading, errorBanner, total, lastPage,
-    fetchPage, setHumanText, applyFilters, resetFilters, goPage, setPerPage, clearError,
+    filters, sort, page, perPage, items, isLoading, errorBanner, total, lastPage,
+    fetchPage, setHumanText, applyFilters, resetFilters, goPage, setPerPage, toggleSort, clearError,
 } = useLastTouchInteractions();
 
 const emit = defineEmits(['close']);
@@ -69,6 +70,11 @@ const onHumanText = (text: string): void => {
     setHumanText(text);
 };
 
+// клик по шапке таблицы: цикл asc -> desc -> off живёт в composable (toggleSort)
+const onSortChange = (field: LastTouchSortField): void => {
+    toggleSort(field);
+};
+
 const hasActiveFilters = computed<boolean>(() => countActiveFilters(filters.value) > 0);
 </script>
 
@@ -109,8 +115,11 @@ const hasActiveFilters = computed<boolean>(() => countActiveFilters(filters.valu
             :page="page"
             :last-page="lastPage"
             :per-page="perPage"
+            :sort-by="sort.sortBy"
+            :sort-dir="sort.sortDir"
             @go-page="goPage"
             @set-per-page="setPerPage"
+            @sort-change="onSortChange"
         />
     </ui-modal-container>
 </template>

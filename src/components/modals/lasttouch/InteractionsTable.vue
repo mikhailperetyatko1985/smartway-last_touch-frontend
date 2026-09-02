@@ -2,6 +2,8 @@
 import { computed } from 'vue';
 import type { ILastTouchInteraction } from 'interfaces/ILastTouchInteractions';
 import { TOUCH_TYPE_OPTIONS } from 'interfaces/ILastTouchInteractions';
+import type { LastTouchSortDir, LastTouchSortField } from 'constants/lastTouch';
+import { LAST_TOUCH_TABLE_COLUMNS } from 'constants/lastTouch';
 
 const props = defineProps({
     items: {
@@ -32,9 +34,31 @@ const props = defineProps({
         type: Number,
         default: 50,
     },
+    // Активная сортировка (null = базовая сортировка бэкенда) — для индикатора в шапке
+    sortBy: {
+        type: String as () => LastTouchSortField | null,
+        default: null,
+    },
+    sortDir: {
+        type: String as () => LastTouchSortDir,
+        default: 'asc',
+    },
 });
 
-const emit = defineEmits(['go-page', 'set-per-page']);
+const emit = defineEmits(['go-page', 'set-per-page', 'sort-change']);
+
+// --- сортировка: клик по шапке -> родитель переключает asc -> desc -> off (цикл живёт в composable) ---
+const onSortClick = (field: LastTouchSortField): void => {
+    if (props.isLoading) return;
+    emit('sort-change', field);
+};
+
+const isSortedBy = (colKey: LastTouchSortField): boolean => props.sortBy === colKey;
+
+const ariaSortOf = (colKey: LastTouchSortField): 'ascending' | 'descending' | undefined => {
+    if (!isSortedBy(colKey)) return undefined;
+    return props.sortDir === 'asc' ? 'ascending' : 'descending';
+};
 
 // --- форматирование дат (локальное время, dd.MM.yyyy HH:mm / dd.MM HH:mm) ---
 const pad2 = (n: number): string => String(n).padStart(2, '0');
@@ -123,13 +147,20 @@ const SKELETON_ROWS = 8;
             <table :class="$style.table">
                 <thead>
                     <tr>
-                        <th :class="$style.th">Дата касания</th>
-                        <th :class="[$style.th, $style.thDesc]">Описание</th>
-                        <th :class="$style.th">Тип</th>
-                        <th :class="$style.th">Lead</th>
-                        <th :class="$style.th">Manager</th>
-                        <th :class="$style.th">Contact</th>
-                        <th :class="$style.th">Создано</th>
+                        <!-- Шапка кликабельна: клик переключает asc -> desc -> off (без сортировки) -->
+                        <th
+                            v-for="col in LAST_TOUCH_TABLE_COLUMNS"
+                            :key="col.key"
+                            :class="[
+                                $style.th,
+                                $style.thSortable,
+                                { [$style.thDesc]: col.key === 'human_text', [$style.thActive]: isSortedBy(col.key) },
+                            ]"
+                            :aria-sort="ariaSortOf(col.key)"
+                            @click="onSortClick(col.key)"
+                        >
+                            {{ col.labelRu }}<span v-if="isSortedBy(col.key)" :class="$style.sortArrow">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+                        </th>
                     </tr>
                 </thead>
 
@@ -259,6 +290,29 @@ const SKELETON_ROWS = 8;
 
 .thDesc {
     min-width: 240px;
+}
+
+/* кликабельная шапка: pointer + лёгкий hover-подсветка, активный столбец — акцентный цвет */
+.thSortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 120ms ease;
+}
+
+.thSortable:hover {
+    color: #0b6fa3;
+}
+
+.thActive,
+.thActive:hover {
+    color: #0b6fa3;
+}
+
+.sortArrow {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10px;
+    line-height: 1;
 }
 
 .tdNum {

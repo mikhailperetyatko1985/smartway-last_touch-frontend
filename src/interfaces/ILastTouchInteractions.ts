@@ -1,4 +1,4 @@
-import { ITouchTypeMeta, TOGGLEABLE_TOUCH_TYPES } from 'constants/lastTouch';
+import { ITouchTypeMeta, TOGGLEABLE_TOUCH_TYPES, LastTouchSortDir, LastTouchSortField } from 'constants/lastTouch';
 
 // Строка касания (snake_case как в JSON-ответе бэкенда)
 export interface ILastTouchInteraction {
@@ -50,6 +50,8 @@ export interface ILastTouchInteractionsQuery {
   createdAtTo?: string;
   page?: number;             // >=1, default 1
   perPage?: number;          // 1..200, default 50
+  sortBy?: LastTouchSortField;   // undefined = базовая сортировка бэкенда (touched_at DESC, id DESC)
+  sortDir?: LastTouchSortDir;    // учитывается только вместе с sortBy, default asc
 }
 
 // Допустимые touch_type + русские лейблы — тот же справочник, что и в constants/lastTouch (TouchTypes::TOGGLEABLE_TOUCH_TYPES)

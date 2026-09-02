@@ -47,3 +47,42 @@ export const TOUCH_TYPES_GROUPS: ITouchTypeGroup[] = [
   { labelRu: 'SMS', values: ['incoming_sms', 'outgoing_sms'] },
   { labelRu: 'Заметки', values: ['common_note_added', 'attachment_note_added'] },
 ];
+
+// --- Сортировка таблицы «История последних касаний» (GET /api/last-touch/interactions) ---
+
+// Допустимые значения sort_by на бэкенде. Не отправляется -> базовая сортировка touched_at DESC, id DESC
+export type LastTouchSortField =
+  | 'id'
+  | 'lead_id'
+  | 'manager_id'
+  | 'contact_id'
+  | 'touch_type'
+  | 'human_text'
+  | 'touched_at'
+  | 'created_at';
+
+// Допустимые значения sort_dir
+export type LastTouchSortDir = 'asc' | 'desc';
+
+// Состояние сортировки: sortBy = null -> базовая сортировка бэкенда (sort_by/sort_dir не отправляются)
+export interface ILastTouchInteractionsSort {
+  sortBy: LastTouchSortField | null;
+  sortDir: LastTouchSortDir;
+}
+
+// Колонки таблицы: key — имя поля sort_by на API, labelRu — текст заголовка.
+// Единственный источник для рендера шапки и маппинга «UI-колонка -> sort_by».
+export interface ILastTouchTableColumn {
+  key: LastTouchSortField;
+  labelRu: string;
+}
+
+export const LAST_TOUCH_TABLE_COLUMNS: readonly ILastTouchTableColumn[] = [
+  { key: 'touched_at', labelRu: 'Дата касания' },
+  { key: 'human_text', labelRu: 'Описание' },
+  { key: 'touch_type', labelRu: 'Тип' },
+  { key: 'lead_id', labelRu: 'Lead' },
+  { key: 'manager_id', labelRu: 'Manager' },
+  { key: 'contact_id', labelRu: 'Contact' },
+  { key: 'created_at', labelRu: 'Создано' },
+];
