@@ -6,6 +6,7 @@ import Settings from 'components/modals/Settings.vue';
 import { AmoPipelineApi } from 'drivers/amo/AmoPipelineApi';
 import { PrivilegesApi } from 'drivers/backend/PrivilegesApi';
 import { LastTouchSettingsApi } from 'drivers/backend/LastTouchSettingsApi';
+import { LastTouchInteractionsApi } from 'drivers/backend/LastTouchInteractionsApi';
 import env from './env';
 
 let ModalClass = null;
@@ -44,6 +45,7 @@ function Widget() {
     new AmoPipelineApi(),
     new PrivilegesApi(host),
     new LastTouchSettingsApi(host),
+    new LastTouchInteractionsApi(host),
   );
 
   widget.name = env.widget_name;

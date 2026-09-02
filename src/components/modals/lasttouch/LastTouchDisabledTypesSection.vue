@@ -59,7 +59,7 @@ const gridStyle = computed<Record<string, string>>(() => ({
                 <span :class="$style.typeName">{{ getTypeLabel(type.value) }}</span>
                 <ui-switch
                     :model-value="isEnabled(type.value)"
-                    @update:model-value="(v) => handleToggle(type.value)(v)"
+                    @update:model-value="handleToggle(type.value)"
                 />
             </div>
         </div>

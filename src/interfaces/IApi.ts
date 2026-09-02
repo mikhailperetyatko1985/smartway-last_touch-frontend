@@ -3,6 +3,7 @@ import { ISettingsApi } from 'interfaces/ISettingsApi';
 import { IPipelineApi } from 'interfaces/IPipelineApi';
 import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
 import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
+import { ILastTouchInteractionsApi } from 'interfaces/ILastTouchInteractionsApi';
 
 export interface IApi {
   managerApi: IManagerApi,
@@ -10,5 +11,6 @@ export interface IApi {
   pipelineApi: IPipelineApi,
   privilegesApi: IPrivilegesApi,
   lastTouchSettingsApi: ILastTouchSettingsApi,
+  lastTouchInteractionsApi: ILastTouchInteractionsApi,
 }
 

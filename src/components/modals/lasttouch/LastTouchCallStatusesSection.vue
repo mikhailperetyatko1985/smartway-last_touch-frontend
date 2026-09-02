@@ -94,7 +94,7 @@ const handleDurationInput = (statusId: number) => (raw: unknown): void => {
                         min="0"
                         placeholder="без лимита"
                         :model-value="durationFor(status.value)"
-                        @update:model-value="(v) => handleDurationInput(status.value)(v)"
+                        @update:model-value="handleDurationInput(status.value)"
                     />
                 </div>
             </div>

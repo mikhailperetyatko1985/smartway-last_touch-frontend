@@ -165,6 +165,20 @@ const updateResponsible = (index: number, value: number | null): void => {
         i === index ? { ...r, responsibleCustomFieldId: value } : r
     )));
 };
+
+// Обёртки-зависимости для template: inline-стрелки в шаблоне теряют типы при компиляции SFC,
+// поэтому хэндлер передаётся готовой типизированной функцией (curry по индексу строки).
+const onCallUpdate = (index: number) => (value: { statuses: number[]; durations: ICallDurationMap }): void => {
+    updateCall(index, value);
+};
+
+const onTypesUpdate = (index: number) => (value: string[]): void => {
+    updateTypes(index, value);
+};
+
+const onResponsibleUpdate = (index: number) => (value: number | null): void => {
+    updateResponsible(index, value);
+};
 </script>
 
 <template>
@@ -187,7 +201,7 @@ const updateResponsible = (index: number, value: number | null): void => {
                         :options="getOptionsForRow(row.index)"
                         :clearable="false"
                         placeholder="Выберите воронку..."
-                        @update:model-value="(v) => handlePipelineChange(row.index)(v)"
+                        @update:model-value="handlePipelineChange(row.index)"
                     />
                     <span v-else :class="$style.warningChip">Воронка #{{ row.entry.pipelineId }} не найдена</span>
                 </div>
@@ -234,16 +248,16 @@ const updateResponsible = (index: number, value: number | null): void => {
                 <div :class="$style.subSections">
                     <last-touch-call-statuses-section
                         :model-value="callValue(row)"
-                        @update:model-value="(v) => updateCall(row.index, v)"
+                        @update:model-value="onCallUpdate(row.index)"
                     />
                     <last-touch-disabled-types-section
                         :model-value="row.entry.disabledTouchTypes"
-                        @update:model-value="(v) => updateTypes(row.index, v)"
+                        @update:model-value="onTypesUpdate(row.index)"
                     />
                     <last-touch-responsible-field-section
                         :fields="customFields"
                         :model-value="row.entry.responsibleCustomFieldId"
-                        @update:model-value="(v) => updateResponsible(row.index, v)"
+                        @update:model-value="onResponsibleUpdate(row.index)"
                     />
                 </div>
             </template>

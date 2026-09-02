@@ -6,6 +6,7 @@ import { ISettingsApi } from 'interfaces/ISettingsApi';
 import { IPipelineApi } from 'interfaces/IPipelineApi';
 import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
 import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
+import { ILastTouchInteractionsApi } from 'interfaces/ILastTouchInteractionsApi';
 
 const instance = reactive({
     widget: null,
@@ -27,6 +28,7 @@ export function useAmoCrmStore() {
         pipelineApi: IPipelineApi,
         privilegesApi: IPrivilegesApi,
         lastTouchSettingsApi: ILastTouchSettingsApi,
+        lastTouchInteractionsApi: ILastTouchInteractionsApi,
     ) => {
         instance.api = {
             managerApi: managerApi,
@@ -34,6 +36,7 @@ export function useAmoCrmStore() {
             pipelineApi: pipelineApi,
             privilegesApi: privilegesApi,
             lastTouchSettingsApi: lastTouchSettingsApi,
+            lastTouchInteractionsApi: lastTouchInteractionsApi,
         };
     };
 
