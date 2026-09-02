@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
-import type { ILastTouchInteractionsFilters } from 'interfaces/ILastTouchInteractions';
+import type { ILastTouchInteractionsFilters, ILastTouchInteractionsFiltersDraft } from 'interfaces/ILastTouchInteractions';
 import type { LastTouchSortField } from 'constants/lastTouch';
 import { useLastTouchInteractions, countActiveFilters } from 'composables/useLastTouchInteractions';
 // @ts-ignore
@@ -16,7 +16,7 @@ import InteractionsTable from 'components/modals/lasttouch/InteractionsTable.vue
 
 const {
     filters, sort, page, perPage, items, isLoading, errorBanner, total, lastPage,
-    fetchPage, setHumanText, applyFilters, resetFilters, goPage, setPerPage, toggleSort, clearError,
+    fetchPage, applyFilters, resetFilters, goPage, setPerPage, toggleSort, clearError,
 } = useLastTouchInteractions();
 
 const emit = defineEmits(['close']);
@@ -24,50 +24,10 @@ const emit = defineEmits(['close']);
 onMounted(fetchPage);
 
 // --- обработчики панели фильтров (state живёт в composable) ---
-type IdKey = 'lead' | 'manager' | 'contact';
-
-type IdFieldKey = 'leadIds' | 'managerIds' | 'contactIds';
-
-const ID_FIELD_MAP: Record<IdKey, IdFieldKey> = {
-    lead: 'leadIds',
-    manager: 'managerIds',
-    contact: 'contactIds',
-};
-
-const onCommitIds = (key: string, ids: number[]): void => {
-    const field = ID_FIELD_MAP[key as IdKey];
-    if (!field) return;
-    const current = filters.value[field] as number[];
-    const changed = current.length !== ids.length || current.some((v, i) => v !== ids[i]);
-    if (changed) {
-        filters.value[field] = ids;
-        applyFilters();
-    }
-};
-
-const onToggleType = (value: string): void => {
-    const current = filters.value.touchTypes;
-    filters.value.touchTypes = current.includes(value)
-        ? current.filter(v => v !== value)
-        : [...current, value];
-    applyFilters();
-};
-
-type DateFieldKey = 'touchedAtFrom' | 'touchedAtTo' | 'createdAtFrom' | 'createdAtTo';
-
-const DATE_FIELDS: ReadonlyArray<DateFieldKey> = [
-    'touchedAtFrom', 'touchedAtTo', 'createdAtFrom', 'createdAtTo',
-];
-
-const onDateChange = (field: string, value: string): void => {
-    if (!DATE_FIELDS.includes(field as DateFieldKey)) return;
-    filters.value[field as DateFieldKey] = value;
-    applyFilters();
-};
-
-// текст меняется сразу (v-model поля), перезапрос — debounce внутри composable
-const onHumanText = (text: string): void => {
-    setHumanText(text);
+// Панель держит единый черновик ВСЕХ фильтров и шлёт его только явным действием («Найти» / Enter):
+// composable заменяет применённое состояние, сбрасывает на 1-ю страницу и запрашивает.
+const onApplyFilters = (draft: ILastTouchInteractionsFiltersDraft): void => {
+    applyFilters(draft);
 };
 
 // клик по шапке таблицы: цикл asc -> desc -> off живёт в composable (toggleSort)
@@ -99,10 +59,7 @@ const hasActiveFilters = computed<boolean>(() => countActiveFilters(filters.valu
         <interactions-filters-panel
             :filters="filters"
             :is-loading="isLoading"
-            @human-text="onHumanText"
-            @commit-ids="onCommitIds"
-            @toggle-type="onToggleType"
-            @date-change="onDateChange"
+            @apply-filters="onApplyFilters"
             @reset="resetFilters"
         />
 

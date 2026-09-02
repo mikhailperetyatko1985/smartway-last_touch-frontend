@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import type { ILastTouchInteractionsFilters } from 'interfaces/ILastTouchInteractions';
+import type { ILastTouchInteractionsFilters, ILastTouchInteractionsFiltersDraft } from 'interfaces/ILastTouchInteractions';
 import { TOUCH_TYPE_OPTIONS } from 'interfaces/ILastTouchInteractions';
-import { parseIdList, formatIdList, countActiveFilters } from 'composables/useLastTouchInteractions';
+import { formatIdList, countActiveFilters, isDraftEqualApplied } from 'composables/useLastTouchInteractions';
+// @ts-ignore
+import UiButton from 'components/base/UiButton.vue';
 // @ts-ignore
 import UiFlexContainer from 'components/base/UiFlexContainer.vue';
 // @ts-ignore
@@ -21,21 +23,39 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(['human-text', 'commit-ids', 'toggle-type', 'date-change', 'reset']);
+// Панель держит ЕДИНЫЙ черновик всех фильтров (draft), применённое состояние — в composable (filters).
+// Запрос уходит только явным действием: «Найти» / Enter -> emit apply-filters; «Сбросить» -> emit reset.
+// Ввод/выбор в любом поле панели запрос не запускает.
+const emit = defineEmits(['apply-filters', 'reset']);
 
 const isOpen = ref(true);
 
-// черновики id-полей: применяются только по blur/Enter после валидации
-interface IdFieldState {
-    draft: string;
-    invalid: boolean;
-}
-
-const idFields = reactive<Record<IdKey, IdFieldState>>({
-    lead: { draft: formatIdList(props.filters.leadIds), invalid: false },
-    manager: { draft: formatIdList(props.filters.managerIds), invalid: false },
-    contact: { draft: formatIdList(props.filters.contactIds), invalid: false },
+// Черновик: id-поля хранят сырой ввод (строки — для валидации и сохранения порядка токенов),
+// остальные поля совпадают по типу с применённым состоянием. Применяется только «Найти».
+const draft = reactive<ILastTouchInteractionsFiltersDraft>({
+    humanText: props.filters.humanText,
+    leadIds: formatIdList(props.filters.leadIds),
+    managerIds: formatIdList(props.filters.managerIds),
+    contactIds: formatIdList(props.filters.contactIds),
+    touchTypes: [...props.filters.touchTypes],
+    touchedAtFrom: props.filters.touchedAtFrom,
+    touchedAtTo: props.filters.touchedAtTo,
+    createdAtFrom: props.filters.createdAtFrom,
+    createdAtTo: props.filters.createdAtTo,
 });
+
+// Состояние валидации id-полей — отдельно от черновика: это UI-фидбек, а не значение фильтра
+const invalidIds = reactive<Record<IdKey, boolean>>({ lead: false, manager: false, contact: false });
+
+const ID_KEYS: readonly IdKey[] = ['lead', 'manager', 'contact'];
+
+type DraftIdField = 'leadIds' | 'managerIds' | 'contactIds';
+
+const DRAFT_ID_FIELDS: Record<IdKey, DraftIdField> = {
+    lead: 'leadIds',
+    manager: 'managerIds',
+    contact: 'contactIds',
+};
 
 const ID_TOKEN_RE = /^\d+$/;
 
@@ -45,86 +65,120 @@ const validateIdInput = (input: string): boolean => {
     return tokens.every(t => ID_TOKEN_RE.test(t) && Number(t) > 0);
 };
 
-const commitIds = (key: IdKey): void => {
-    if (props.isLoading) return;
-    const field = idFields[key];
-    const value = field.draft.trim();
-    if (!value) {
-        field.invalid = false;
-        emit('commit-ids', key, []);
-        return;
-    }
-    if (!validateIdInput(value)) {
-        field.invalid = true;
-        return;
-    }
-    const ids = parseIdList(value);
-    field.invalid = false;
-    field.draft = formatIdList(ids);
-    emit('commit-ids', key, ids);
+// blur / Enter в id-поле только валидируют черновик (подсветка ошибки) — запрос не запускают
+const validateIdField = (key: IdKey): void => {
+    invalidIds[key] = !validateIdInput(draft[DRAFT_ID_FIELDS[key]].trim());
 };
 
-// внешний сброс/смена фильтров (resetFilters) синхронизируем с черновиками;
-// обновляем только изменившееся поле, чтобы не затыкать незакоммиченный ввод в соседних
-const prevApplied: Record<IdKey, string> = {
-    lead: props.filters.leadIds.join(','),
-    manager: props.filters.managerIds.join(','),
-    contact: props.filters.contactIds.join(','),
+// Внешние изменения применённого состояния (применение/сброс в composable) синхронизируем с черновиком.
+// Полный пересбор безопасен: при изменении фильтров автозапроса нет, а после применения
+// applied == нормализованному черновику — текст лишь приводится к канону ("1 2" -> "1, 2"),
+// отметки валидации сбрасываются.
+const syncDraftFromApplied = (): void => {
+    const f = props.filters;
+    draft.humanText = f.humanText;
+    draft.leadIds = formatIdList(f.leadIds);
+    draft.managerIds = formatIdList(f.managerIds);
+    draft.contactIds = formatIdList(f.contactIds);
+    draft.touchTypes = [...f.touchTypes];
+    draft.touchedAtFrom = f.touchedAtFrom;
+    draft.touchedAtTo = f.touchedAtTo;
+    draft.createdAtFrom = f.createdAtFrom;
+    draft.createdAtTo = f.createdAtTo;
+    for (const key of ID_KEYS) {
+        invalidIds[key] = false;
+    }
 };
 
 watch(
-    () => [props.filters.leadIds.join(','), props.filters.managerIds.join(','), props.filters.contactIds.join(',')],
-    ([l, m, c]) => {
-        if (l !== prevApplied.lead) {
-            idFields.lead.draft = l;
-            idFields.lead.invalid = false;
-            prevApplied.lead = l;
-        }
-        if (m !== prevApplied.manager) {
-            idFields.manager.draft = m;
-            idFields.manager.invalid = false;
-            prevApplied.manager = m;
-        }
-        if (c !== prevApplied.contact) {
-            idFields.contact.draft = c;
-            idFields.contact.invalid = false;
-            prevApplied.contact = c;
-        }
-    },
+    () => [
+        props.filters.humanText,
+        props.filters.leadIds.join(','),
+        props.filters.managerIds.join(','),
+        props.filters.contactIds.join(','),
+        props.filters.touchTypes.join(','),
+        props.filters.touchedAtFrom,
+        props.filters.touchedAtTo,
+        props.filters.createdAtFrom,
+        props.filters.createdAtTo,
+    ],
+    syncDraftFromApplied,
 );
 
-const onHumanTextInput = (value: unknown): void => {
-    if (!props.isLoading) {
-        emit('human-text', String(value ?? ''));
+// Черновик отличается от применённого после нормализации (trim/parseIdList) — «Найти» активна
+const isDraftDirty = computed<boolean>(() => !isDraftEqualApplied(draft, props.filters));
+
+const isApplyDisabled = computed<boolean>(() => props.isLoading || !isDraftDirty.value);
+
+// «Сбросить» неактивна, когда сбрасывать нечего: нет применённых фильтров и черновик с ними совпадает
+const isResetDisabled = computed<boolean>(
+    () => props.isLoading || (!isDraftDirty.value && countActiveFilters(props.filters) === 0),
+);
+
+// «Найти» / Enter в поле поиска: валидируем id-поля; если все валидны — отправляем ВСЕ фильтры разом
+// (снимок черновика). Невалидное id-поле подсвечивается, запрос НЕ уходит («мусор» не должен попасть на бэкенд).
+const applyFilters = (): void => {
+    if (isApplyDisabled.value) return;
+    let allValid = true;
+    for (const key of ID_KEYS) {
+        const valid = validateIdInput(draft[DRAFT_ID_FIELDS[key]].trim());
+        invalidIds[key] = !valid;
+        if (!valid) {
+            allValid = false;
+        }
     }
+    if (!allValid) return;
+    emit('apply-filters', { ...draft, touchTypes: [...draft.touchTypes] });
 };
 
-const toggleType = (value: string): void => {
-    if (props.isLoading) return;
-    emit('toggle-type', value);
-};
-
-type DateField = 'touchedAtFrom' | 'touchedAtTo' | 'createdAtFrom' | 'createdAtTo';
-
-const onDateChange = (field: DateField, event: Event): void => {
-    if (props.isLoading) return;
-    const target = event.target as HTMLInputElement | null;
-    emit('date-change', field, target ? target.value : '');
-};
-
-// активные группы фильтров (каждая группа считается один раз)
-// при явном сбросе чистим черновики сразу (в т.ч. невалидные),
-// иначе watch не тронет поля, у которых применённое значение и так пустое
+// «Сбросить»: чистим черновик (в т.ч. незакоммиченный/невалидный ввод), затем composable
+// чистит применённые фильтры + перезапрос без фильтров с page=1
 const onResetClick = (): void => {
     if (props.isLoading) return;
-    const keys: IdKey[] = ['lead', 'manager', 'contact'];
-    for (const key of keys) {
-        idFields[key].draft = '';
-        idFields[key].invalid = false;
+    draft.humanText = '';
+    draft.leadIds = '';
+    draft.managerIds = '';
+    draft.contactIds = '';
+    draft.touchTypes = [];
+    draft.touchedAtFrom = '';
+    draft.touchedAtTo = '';
+    draft.createdAtFrom = '';
+    draft.createdAtTo = '';
+    for (const key of ID_KEYS) {
+        invalidIds[key] = false;
     }
     emit('reset');
 };
 
+// Чипы типов касаний меняют только черновик — запрос не запускается, пока не нажата «Найти»
+const toggleType = (value: string): void => {
+    const index = draft.touchTypes.indexOf(value);
+    if (index === -1) {
+        draft.touchTypes.push(value);
+    } else {
+        draft.touchTypes.splice(index, 1);
+    }
+};
+
+type DateField = 'touchedAtFrom' | 'touchedAtTo' | 'createdAtFrom' | 'createdAtTo';
+
+// Смена даты обновляет только черновик — запрос не запускается, пока не нажата «Найти»
+const onDateChange = (field: DateField, event: Event): void => {
+    const target = event.target as HTMLInputElement | null;
+    draft[field] = target ? target.value : '';
+};
+
+// Ввод в поле поиска обновляет только черновик — запрос по «Найти» / Enter
+const onSearchInput = (value: unknown): void => {
+    draft.humanText = String(value ?? '');
+};
+
+// Крестик только очищает черновик — до нажатия «Найти» запрос не идёт
+const clearSearchDraft = (): void => {
+    draft.humanText = '';
+};
+
+// активные группы фильтров (каждая группа считается один раз) — счётчик по применённому состоянию
 const activeCount = computed<number>(() => countActiveFilters(props.filters));
 
 const filterWord = computed<string>(() => {
@@ -159,69 +213,72 @@ const filterWord = computed<string>(() => {
         </div>
 
         <div v-show="isOpen" :class="$style.body">
-            <!-- Поиск по описанию -->
-            <div :class="$style.searchWrap">
-                <ui-input
-                    :model-value="filters.humanText"
-                    type="text"
-                    placeholder="Поиск по описанию…"
-                    :disabled="isLoading"
-                    :class="$style.searchInput"
-                    @update:model-value="onHumanTextInput"
-                />
-                <button
-                    v-if="filters.humanText"
-                    type="button"
-                    :class="$style.clearBtn"
-                    aria-label="Очистить поиск"
-                    @click="emit('human-text', '')"
-                >✕</button>
+            <!-- Поиск по описанию: ввод не запрашивает; применяется «Найти» / Enter -->
+            <div :class="$style.searchRow">
+                <div :class="$style.searchWrap">
+                    <ui-input
+                        :model-value="draft.humanText"
+                        type="text"
+                        placeholder="Поиск по описанию…"
+                        :disabled="isLoading"
+                        :class="$style.searchInput"
+                        @update:model-value="onSearchInput"
+                        @keydown.enter.prevent="applyFilters"
+                    />
+                    <button
+                        v-if="draft.humanText"
+                        type="button"
+                        :class="$style.clearBtn"
+                        aria-label="Очистить поиск"
+                        @click="clearSearchDraft"
+                    >✕</button>
+                </div>
             </div>
 
-            <!-- Id-фильтры -->
+            <!-- Id-фильтры: ввод/blur только валидируют черновик, запрос — кнопкой «Найти» -->
             <div :class="$style.idGrid">
                 <label :class="$style.field">
-                    <span :class="$style.label">Lead</span>
+                    <span :class="$style.label">Сделка</span>
                     <input
                         type="text"
-                        v-model="idFields.lead.draft"
+                        v-model="draft.leadIds"
                         placeholder="Id через запятую"
                         autocomplete="off"
                         :disabled="isLoading"
-                        :class="[$style.idInput, { [$style.invalid]: idFields.lead.invalid }]"
-                        @blur="commitIds('lead')"
-                        @keydown.enter.prevent="commitIds('lead')"
+                        :class="[$style.idInput, { [$style.invalid]: invalidIds.lead }]"
+                        @blur="validateIdField('lead')"
+                        @keydown.enter.prevent="validateIdField('lead')"
                     />
                 </label>
                 <label :class="$style.field">
-                    <span :class="$style.label">Manager</span>
+                    <span :class="$style.label">Менеджер</span>
                     <input
                         type="text"
-                        v-model="idFields.manager.draft"
+                        v-model="draft.managerIds"
                         placeholder="Id через запятую"
                         autocomplete="off"
                         :disabled="isLoading"
-                        :class="[$style.idInput, { [$style.invalid]: idFields.manager.invalid }]"
-                        @blur="commitIds('manager')"
-                        @keydown.enter.prevent="commitIds('manager')"
+                        :class="[$style.idInput, { [$style.invalid]: invalidIds.manager }]"
+                        @blur="validateIdField('manager')"
+                        @keydown.enter.prevent="validateIdField('manager')"
                     />
                 </label>
                 <label :class="$style.field">
-                    <span :class="$style.label">Contact</span>
+                    <span :class="$style.label">Контакт</span>
                     <input
                         type="text"
-                        v-model="idFields.contact.draft"
+                        v-model="draft.contactIds"
                         placeholder="Id через запятую"
                         autocomplete="off"
                         :disabled="isLoading"
-                        :class="[$style.idInput, { [$style.invalid]: idFields.contact.invalid }]"
-                        @blur="commitIds('contact')"
-                        @keydown.enter.prevent="commitIds('contact')"
+                        :class="[$style.idInput, { [$style.invalid]: invalidIds.contact }]"
+                        @blur="validateIdField('contact')"
+                        @keydown.enter.prevent="validateIdField('contact')"
                     />
                 </label>
             </div>
 
-            <!-- Типы касаний -->
+            <!-- Типы касаний: чипы меняют только черновик -->
             <div :class="$style.field">
                 <span :class="$style.label">Тип касания</span>
                 <div :class="$style.chips">
@@ -230,13 +287,13 @@ const filterWord = computed<string>(() => {
                         :key="option.value"
                         type="button"
                         :disabled="isLoading"
-                        :class="[$style.chip, { [$style.chipActive]: filters.touchTypes.includes(option.value) }]"
+                        :class="[$style.chip, { [$style.chipActive]: draft.touchTypes.includes(option.value) }]"
                         @click="toggleType(option.value)"
                     >{{ option.labelRu }}</button>
                 </div>
             </div>
 
-            <!-- Диапазоны дат -->
+            <!-- Диапазоны дат: смена обновляет только черновик -->
             <div :class="$style.datesRow">
                 <div :class="$style.dateGroup">
                     <span :class="$style.label">Дата касания</span>
@@ -244,7 +301,7 @@ const filterWord = computed<string>(() => {
                         <input
                             type="date"
                             aria-label="Дата касания, от"
-                            :value="filters.touchedAtFrom"
+                            :value="draft.touchedAtFrom"
                             :disabled="isLoading"
                             :class="$style.dateInput"
                             @change="onDateChange('touchedAtFrom', $event)"
@@ -253,7 +310,7 @@ const filterWord = computed<string>(() => {
                         <input
                             type="date"
                             aria-label="Дата касания, до"
-                            :value="filters.touchedAtTo"
+                            :value="draft.touchedAtTo"
                             :disabled="isLoading"
                             :class="$style.dateInput"
                             @change="onDateChange('touchedAtTo', $event)"
@@ -266,7 +323,7 @@ const filterWord = computed<string>(() => {
                         <input
                             type="date"
                             aria-label="Создано, от"
-                            :value="filters.createdAtFrom"
+                            :value="draft.createdAtFrom"
                             :disabled="isLoading"
                             :class="$style.dateInput"
                             @change="onDateChange('createdAtFrom', $event)"
@@ -275,13 +332,20 @@ const filterWord = computed<string>(() => {
                         <input
                             type="date"
                             aria-label="Создано, до"
-                            :value="filters.createdAtTo"
+                            :value="draft.createdAtTo"
                             :disabled="isLoading"
                             :class="$style.dateInput"
                             @change="onDateChange('createdAtTo', $event)"
                         />
                     </ui-flex-container>
                 </div>
+            </div>
+
+            <!-- Кнопки действий — отдельный блок внизу панели: «Найти» применяет все фильтры разом,
+                 «Сбросить» чистит черновик и применённые фильтры -->
+            <div :class="$style.actionsRow">
+                <ui-button label="Найти" :class="$style.primaryBtn" :disabled="isApplyDisabled" @click="applyFilters" />
+                <ui-button label="Сбросить" :disabled="isResetDisabled" @click="onResetClick" />
             </div>
         </div>
     </div>
@@ -385,9 +449,15 @@ const filterWord = computed<string>(() => {
     padding: 4px 12px 12px;
 }
 
+.searchRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .searchWrap {
     position: relative;
-    width: 100%;
+    flex: 1 1 auto;
     min-width: 0;
     box-sizing: border-box;
 }
@@ -538,6 +608,27 @@ const filterWord = computed<string>(() => {
 .dateInput:focus-visible {
     outline: 2px solid #21a6d8;
     outline-offset: 0;
+}
+
+/* Нижний блок действий: визуально отделён от полей фильтров */
+.actionsRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid #e8eaeb;
+}
+
+/* «Найти» — primary (акцентный цвет виджета); специфичность выше, чем у .container UiButton */
+.actionsRow .primaryBtn:not(:disabled) {
+    color: #fff;
+    background-color: #21a6d8;
+    border-color: #21a6d8;
+}
+
+.actionsRow .primaryBtn:not(:disabled):hover {
+    background-color: #1b8fbd;
+    border-color: #1b8fbd;
 }
 
 @media (max-width: 720px) {

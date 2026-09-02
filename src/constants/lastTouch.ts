@@ -80,9 +80,9 @@ export interface ILastTouchTableColumn {
 export const LAST_TOUCH_TABLE_COLUMNS: readonly ILastTouchTableColumn[] = [
   { key: 'touched_at', labelRu: 'Дата касания' },
   { key: 'human_text', labelRu: 'Описание' },
-  { key: 'touch_type', labelRu: 'Тип' },
-  { key: 'lead_id', labelRu: 'Lead' },
-  { key: 'manager_id', labelRu: 'Manager' },
-  { key: 'contact_id', labelRu: 'Contact' },
+  { key: 'touch_type', labelRu: 'Тип касания' },
+  { key: 'lead_id', labelRu: 'Сделка' },
+  { key: 'manager_id', labelRu: 'Менеджер' },
+  { key: 'contact_id', labelRu: 'Контакт' },
   { key: 'created_at', labelRu: 'Создано' },
 ];

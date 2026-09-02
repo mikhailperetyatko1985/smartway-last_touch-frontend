@@ -1,11 +1,10 @@
 import { ref, computed } from 'vue';
 import { useAmoCrmStore } from 'stores/useAmoCrmStore';
-import { ILastTouchInteraction, ILastTouchInteractionsFilters, ILastTouchInteractionsMeta, ILastTouchInteractionsQuery } from 'interfaces/ILastTouchInteractions';
+import { ILastTouchInteraction, ILastTouchInteractionsFilters, ILastTouchInteractionsFiltersDraft, ILastTouchInteractionsMeta, ILastTouchInteractionsQuery } from 'interfaces/ILastTouchInteractions';
 import { ILastTouchInteractionsSort, LastTouchSortField } from 'constants/lastTouch';
 
 const { getApi } = useAmoCrmStore();
 
-const HUMAN_TEXT_DEBOUNCE_MS = 400;
 const DEFAULT_PER_PAGE = 50;
 const MIN_PER_PAGE = 1;
 const MAX_PER_PAGE = 200;
@@ -39,6 +38,45 @@ export const countActiveFilters = (f: ILastTouchInteractionsFilters): number => 
   if (f.createdAtFrom || f.createdAtTo) count++;
   return count;
 };
+
+// Черновик -> применённое состояние: id-текст нормализуется в number[], humanText — trim (см. ILastTouchInteractionsFiltersDraft)
+export const draftToApplied = (d: ILastTouchInteractionsFiltersDraft): ILastTouchInteractionsFilters => ({
+  leadIds: parseIdList(d.leadIds),
+  managerIds: parseIdList(d.managerIds),
+  contactIds: parseIdList(d.contactIds),
+  touchTypes: [...d.touchTypes],
+  humanText: d.humanText.trim(),
+  touchedAtFrom: d.touchedAtFrom,
+  touchedAtTo: d.touchedAtTo,
+  createdAtFrom: d.createdAtFrom,
+  createdAtTo: d.createdAtTo,
+});
+
+const sameNumberArray = (a: number[], b: number[]): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+
+// Порядок типов касаний в запросе не значим — сравниваем как множества
+const sameStringSet = (a: readonly string[], b: readonly string[]): boolean => {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
+};
+
+// Черновик идентичен применённому после нормализации (trim/parseIdList).
+// Используется для disabled-состояния кнопки «Найти» и guard'а в applyFilters.
+export const isDraftEqualApplied = (d: ILastTouchInteractionsFiltersDraft, f: ILastTouchInteractionsFilters): boolean => (
+  d.humanText.trim() === f.humanText
+    && sameNumberArray(parseIdList(d.leadIds), f.leadIds)
+    && sameNumberArray(parseIdList(d.managerIds), f.managerIds)
+    && sameNumberArray(parseIdList(d.contactIds), f.contactIds)
+    && sameStringSet(d.touchTypes, f.touchTypes)
+    && d.touchedAtFrom === f.touchedAtFrom
+    && d.touchedAtTo === f.touchedAtTo
+    && d.createdAtFrom === f.createdAtFrom
+    && d.createdAtTo === f.createdAtTo
+);
 
 const emptyFilters = (): ILastTouchInteractionsFilters => ({
   leadIds: [],
@@ -78,9 +116,8 @@ export function useLastTouchInteractions() {
   const errorBanner = ref<{ title: string; text: string } | null>(null);
 
   // sequence-token: результат применяем только для самого свежего запроса,
-  // устаревшие ответы (гонка дебаунса) не перезаписывают состояние
+  // устаревшие ответы не перезаписывают состояние
   let requestSeq = 0;
-  let humanTextTimer: ReturnType<typeof setTimeout> | null = null;
 
   const total = computed(() => meta.value?.total ?? 0);
   const lastPage = computed(() => meta.value?.last_page ?? 1);
@@ -166,34 +203,20 @@ export function useLastTouchInteractions() {
     }
   };
 
-  const cancelHumanTextDebounce = (): void => {
-    if (humanTextTimer !== null) {
-      clearTimeout(humanTextTimer);
-      humanTextTimer = null;
+  // Единственная точка применения фильтров («Найти» / Enter в панели): заменяет применённое
+  // состояние черновиком, сбрасывает на 1-ю страницу и запрашивает. Изменение любого фильтра
+  // без этого вызова запрос НЕ запускает (сортировка/пагинация — отдельные немедленные действия).
+  const applyFilters = (draft: ILastTouchInteractionsFiltersDraft): void => {
+    if (isDraftEqualApplied(draft, filters.value)) {
+      return; // черновик совпадает с применённым после нормализации — перезапрос не нужен
     }
-  };
-
-  // текст меняем сразу (для v-model поля), перезапрос — через debounce со сбросом page=1
-  const setHumanText = (text: string): void => {
-    filters.value.humanText = text;
-    cancelHumanTextDebounce();
-    humanTextTimer = setTimeout(() => {
-      humanTextTimer = null;
-      page.value = 1;
-      fetchPage();
-    }, HUMAN_TEXT_DEBOUNCE_MS);
-  };
-
-  // явный перезапрос без дебаунса (touchTypes/даты) — компонент вызывает сам после смены фильтра
-  const applyFilters = (): void => {
-    cancelHumanTextDebounce();
+    filters.value = draftToApplied(draft);
     page.value = 1;
     fetchPage();
   };
 
   // чистим все фильтры (perPage не трогаем), сбрасываем на первую страницу и грузим
   const resetFilters = (): void => {
-    cancelHumanTextDebounce();
     filters.value = cloneFilters(emptyFilters());
     page.value = 1;
     fetchPage();
@@ -203,7 +226,6 @@ export function useLastTouchInteractions() {
     if (!Number.isFinite(n) || n < 1) {
       return;
     }
-    cancelHumanTextDebounce();
     page.value = Math.floor(n);
     fetchPage();
   };
@@ -213,7 +235,6 @@ export function useLastTouchInteractions() {
     if (!Number.isFinite(value) || value < MIN_PER_PAGE || value > MAX_PER_PAGE) {
       return;
     }
-    cancelHumanTextDebounce();
     perPage.value = value;
     page.value = 1;
     fetchPage();
@@ -229,7 +250,6 @@ export function useLastTouchInteractions() {
     } else {
       sort.value = { sortBy: field, sortDir: 'asc' };
     }
-    cancelHumanTextDebounce();
     page.value = 1;
     fetchPage();
   };
@@ -250,7 +270,6 @@ export function useLastTouchInteractions() {
     total,
     lastPage,
     fetchPage,
-    setHumanText,
     applyFilters,
     resetFilters,
     goPage,

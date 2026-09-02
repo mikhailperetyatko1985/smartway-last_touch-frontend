@@ -24,13 +24,28 @@ export interface ILastTouchInteractionsResponse {
   meta: ILastTouchInteractionsMeta;
 }
 
-// Состояние фильтров; пустые массивы / '' = фильтр выключен
+// Состояние фильтров (применённое, живёт в composable); пустые массивы / '' = фильтр выключен
 export interface ILastTouchInteractionsFilters {
   leadIds: number[];
   managerIds: number[];
   contactIds: number[];
   touchTypes: string[];
   humanText: string;
+  touchedAtFrom: string;
+  touchedAtTo: string;
+  createdAtFrom: string;
+  createdAtTo: string;
+}
+
+// Черновик фильтров в панели: id-поля — исходный ввод (строки, валидация на стороне ввода),
+// остальные поля совпадают по типу с применённым состоянием.
+// Применяется только явным действием («Найти» / Enter) через applyFilters в composable.
+export interface ILastTouchInteractionsFiltersDraft {
+  humanText: string;      // сырой текст поиска, trim'ится при применении
+  leadIds: string;        // сырой список id ("1, 2 3"), '' = фильтр выключен
+  managerIds: string;
+  contactIds: string;
+  touchTypes: string[];   // как в применённом состоянии; значения из TOUCH_TYPE_OPTIONS
   touchedAtFrom: string;
   touchedAtTo: string;
   createdAtFrom: string;
