@@ -15,6 +15,8 @@ import SettingsSetLongLivedTokenModal from 'components/modals/SettingsSetLongLiv
 import LastTouchSettingsModal from 'components/modals/LastTouchSettingsModal.vue';
 // @ts-ignore
 import LastTouchInteractionsModal from 'components/modals/LastTouchInteractionsModal.vue';
+// @ts-ignore
+import LastTouchFrequencyModal from 'components/modals/LastTouchFrequencyModal.vue';
 //@ts-ignore
 import UiButton from 'components/base/UiButton.vue';
 import { closeModal, container as WidgetContainerModal, openModal } from 'jenesius-vue-modal';
@@ -24,6 +26,7 @@ const isOpenSetOauthModal = ref(false);
 const isOpenSetLongLivedModal = ref(false);
 const isOpenLastTouchSettingsModal = ref(false);
 const isOpenLastTouchInteractionsModal = ref(false);
+const isOpenLastTouchFrequencyModal = ref(false);
 
 const { getApi, showError } = useAmoCrmStore();
 const pendingStatus = reactive({
@@ -119,6 +122,23 @@ watch(
     },
 );
 
+watch(
+    () => isOpenLastTouchFrequencyModal.value,
+    async (value) => {
+        if (!value) return;
+        const modal = await openModal(LastTouchFrequencyModal, {});
+        modal.on('close', () => {
+            closeModal();
+        });
+        modal.on('apply', () => {
+            closeModal();
+        });
+        modal.onclose = () => {
+            isOpenLastTouchFrequencyModal.value = false;
+        };
+    },
+);
+
 getSettings();
 
 </script>
@@ -146,6 +166,7 @@ getSettings();
         <ui-button label="Установить долгосрочный токен доступа" @click="isOpenSetLongLivedModal = true" />
         <ui-button label="Установить временный токен доступа" @click="isOpenSetOauthModal = true" />
         <ui-button label="Настройки последнего касания" @click="isOpenLastTouchSettingsModal = true" />
+        <ui-button label="Частота сбора данных" @click="isOpenLastTouchFrequencyModal = true" />
         <ui-button label="История касаний" @click="isOpenLastTouchInteractionsModal = true" />
         <widget-container-modal :class="$style.modalContainer" />
     </ui-flex-container>

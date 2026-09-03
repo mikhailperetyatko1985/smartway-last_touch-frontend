@@ -7,6 +7,7 @@ import { AmoPipelineApi } from 'drivers/amo/AmoPipelineApi';
 import { PrivilegesApi } from 'drivers/backend/PrivilegesApi';
 import { LastTouchSettingsApi } from 'drivers/backend/LastTouchSettingsApi';
 import { LastTouchInteractionsApi } from 'drivers/backend/LastTouchInteractionsApi';
+import { LastTouchCalculationIntervalApi } from 'drivers/backend/LastTouchCalculationIntervalApi';
 import env from './env';
 
 let ModalClass = null;
@@ -46,6 +47,7 @@ function Widget() {
     new PrivilegesApi(host),
     new LastTouchSettingsApi(host),
     new LastTouchInteractionsApi(host),
+    new LastTouchCalculationIntervalApi(host),
   );
 
   widget.name = env.widget_name;

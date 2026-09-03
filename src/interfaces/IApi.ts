@@ -4,6 +4,7 @@ import { IPipelineApi } from 'interfaces/IPipelineApi';
 import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
 import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
 import { ILastTouchInteractionsApi } from 'interfaces/ILastTouchInteractionsApi';
+import { ICalculationIntervalApi } from 'interfaces/ICalculationIntervalApi';
 
 export interface IApi {
   managerApi: IManagerApi,
@@ -12,5 +13,6 @@ export interface IApi {
   privilegesApi: IPrivilegesApi,
   lastTouchSettingsApi: ILastTouchSettingsApi,
   lastTouchInteractionsApi: ILastTouchInteractionsApi,
+  lastTouchCalculationIntervalApi: ICalculationIntervalApi,
 }
 

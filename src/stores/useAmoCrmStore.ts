@@ -7,6 +7,7 @@ import { IPipelineApi } from 'interfaces/IPipelineApi';
 import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
 import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
 import { ILastTouchInteractionsApi } from 'interfaces/ILastTouchInteractionsApi';
+import { ICalculationIntervalApi } from 'interfaces/ICalculationIntervalApi';
 
 const instance = reactive({
     widget: null,
@@ -29,6 +30,7 @@ export function useAmoCrmStore() {
         privilegesApi: IPrivilegesApi,
         lastTouchSettingsApi: ILastTouchSettingsApi,
         lastTouchInteractionsApi: ILastTouchInteractionsApi,
+        lastTouchCalculationIntervalApi: ICalculationIntervalApi,
     ) => {
         instance.api = {
             managerApi: managerApi,
@@ -37,6 +39,7 @@ export function useAmoCrmStore() {
             privilegesApi: privilegesApi,
             lastTouchSettingsApi: lastTouchSettingsApi,
             lastTouchInteractionsApi: lastTouchInteractionsApi,
+            lastTouchCalculationIntervalApi: lastTouchCalculationIntervalApi,
         };
     };
 
