@@ -8,6 +8,10 @@ import { PrivilegesApi } from 'drivers/backend/PrivilegesApi';
 import { LastTouchSettingsApi } from 'drivers/backend/LastTouchSettingsApi';
 import { LastTouchInteractionsApi } from 'drivers/backend/LastTouchInteractionsApi';
 import { LastTouchCalculationIntervalApi } from 'drivers/backend/LastTouchCalculationIntervalApi';
+import { TimelineFilterSettingsApi } from 'drivers/backend/TimelineFilterSettingsApi';
+import { TimelineTargetUsersApi } from 'drivers/backend/TimelineTargetUsersApi';
+import TimelineFilterSettings from 'components/modals/TimelineFilterSettings.vue';
+import { mountTimelineFilter } from './timelineFilter';
 import env from './env';
 
 let ModalClass = null;
@@ -23,6 +27,9 @@ function Widget() {
   widget.settingsCorrected = false;
   widget.settingsComponentId = 'smartway-settings-modal';
   widget.settingsComponentApp = null;
+  // Секция «Timeline Filter» (R12): отдельный маунт в том же settings-контейнере, рядом с Settings.vue
+  widget.timelineFilterSettingsComponentId = 'smartway-timeline-filter-settings';
+  widget.timelineFilterSettingsApp = null;
   widget.isActive = () => Object.values(this.amocrm?.widgets?.list ?? {})
     ?.find((widget) => widget.name === env.widget_name)
     ?.params.active === 'Y';
@@ -48,17 +55,35 @@ function Widget() {
     new LastTouchSettingsApi(host),
     new LastTouchInteractionsApi(host),
     new LastTouchCalculationIntervalApi(host),
+    new TimelineFilterSettingsApi(host),
+    new TimelineTargetUsersApi(host),
   );
 
   widget.name = env.widget_name;
 
+  // Timeline-фильтр: config-таблица маунтинга по образцу Compas (план §5.1).
+  const timelineFilterConfig = {
+    // eslint-disable-next-line no-undef
+    targetEntity: () => AMOCRM?.data?.current_entity === 'leads' && AMOCRM?.data?.is_card,
+  };
+
   widget.callbacks = {
     async render() {
+      // R11: ошибка timeline-фильтра не должна ломать last_touch — весь вызов в try/catch
+      if (timelineFilterConfig.targetEntity()) {
+        try {
+          mountTimelineFilter(widget);
+        } catch (e) {
+          console.warn('[STF] mount failed', e);
+        }
+      }
       return true;
     },
 
     unMountSettingsComponent() {
       document.querySelector(`#${widget.settingsComponentId}`)?.remove();
+      // Секция «Timeline Filter» размонтируется вместе с настройками (аддитивно, R12)
+      document.querySelector(`#${widget.timelineFilterSettingsComponentId}`)?.remove();
       $('.widget_settings_block')?.show();
       widget.settingsMounted = false;
       try {
@@ -66,6 +91,12 @@ function Widget() {
       } catch {
         //
       }
+      try {
+        widget.timelineFilterSettingsApp?.unmount();
+      } catch {
+        //
+      }
+      widget.timelineFilterSettingsApp = null;
     },
 
     mountSettingsComponent() {
@@ -89,6 +120,18 @@ function Widget() {
         {},
         vueContainer
       );
+
+      // Секция «Timeline Filter» (R12): отдельная секция в том же контейнере .widget-settings__desc-space —
+      // свои ключи/эндпоинты, общих мутабельных состояний с last_touch нет
+      const timelineFilterContainer = document.createElement('div');
+      timelineFilterContainer.id = widget.timelineFilterSettingsComponentId;
+      parentContainer[0]?.appendChild(timelineFilterContainer);
+      widget.timelineFilterSettingsApp = mountComponent(
+        TimelineFilterSettings,
+        {},
+        timelineFilterContainer
+      );
+
       widget.settingsMounted = true;
 
       return true;

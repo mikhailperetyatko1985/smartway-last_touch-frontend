@@ -8,6 +8,8 @@ import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
 import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
 import { ILastTouchInteractionsApi } from 'interfaces/ILastTouchInteractionsApi';
 import { ICalculationIntervalApi } from 'interfaces/ICalculationIntervalApi';
+import { ITimelineFilterSettingsApi } from 'interfaces/ITimelineFilterSettingsApi';
+import { ITimelineTargetUsersApi } from 'interfaces/ITimelineTargetUsersApi';
 
 const instance = reactive({
     widget: null,
@@ -31,6 +33,8 @@ export function useAmoCrmStore() {
         lastTouchSettingsApi: ILastTouchSettingsApi,
         lastTouchInteractionsApi: ILastTouchInteractionsApi,
         lastTouchCalculationIntervalApi: ICalculationIntervalApi,
+        timelineFilterSettingsApi: ITimelineFilterSettingsApi,
+        timelineTargetUsersApi: ITimelineTargetUsersApi,
     ) => {
         instance.api = {
             managerApi: managerApi,
@@ -40,6 +44,8 @@ export function useAmoCrmStore() {
             lastTouchSettingsApi: lastTouchSettingsApi,
             lastTouchInteractionsApi: lastTouchInteractionsApi,
             lastTouchCalculationIntervalApi: lastTouchCalculationIntervalApi,
+            timelineFilterSettingsApi: timelineFilterSettingsApi,
+            timelineTargetUsersApi: timelineTargetUsersApi,
         };
     };
 

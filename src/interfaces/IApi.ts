@@ -5,6 +5,8 @@ import { IPrivilegesApi } from 'interfaces/IPrivilegesApi';
 import { ILastTouchSettingsApi } from 'interfaces/ILastTouchSettingsApi';
 import { ILastTouchInteractionsApi } from 'interfaces/ILastTouchInteractionsApi';
 import { ICalculationIntervalApi } from 'interfaces/ICalculationIntervalApi';
+import { ITimelineFilterSettingsApi } from 'interfaces/ITimelineFilterSettingsApi';
+import { ITimelineTargetUsersApi } from 'interfaces/ITimelineTargetUsersApi';
 
 export interface IApi {
   managerApi: IManagerApi,
@@ -14,5 +16,7 @@ export interface IApi {
   lastTouchSettingsApi: ILastTouchSettingsApi,
   lastTouchInteractionsApi: ILastTouchInteractionsApi,
   lastTouchCalculationIntervalApi: ICalculationIntervalApi,
+  timelineFilterSettingsApi: ITimelineFilterSettingsApi,
+  timelineTargetUsersApi: ITimelineTargetUsersApi,
 }
 
