@@ -14,7 +14,7 @@ vi.mock('../../../src/timelineFilter/targetUsersProvider', () => ({
   loadTargetUsers: vi.fn(),
 }));
 
-import { resolveTargets, clearStfResolveCache } from '../../../src/timelineFilter/resolver';
+import { resolveTargets, clearStfResolveCache, extractStfLead } from '../../../src/timelineFilter/resolver';
 import { loadTimelineFilterSettings } from '../../../src/timelineFilter/settingsProvider';
 import { loadTargetUsers } from '../../../src/timelineFilter/targetUsersProvider';
 import type { IFunnelFilterSettings } from '../../../src/interfaces/ITimelineFilterSettings';
@@ -188,5 +188,71 @@ describe('resolver: backend target-users (seam)', () => {
     await resolveTargets('42661595');
 
     expect(getMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// РЕГРЕССИЯ H2 (корневая причина «фильтр не работает»): GET /api/v4/leads/{id} отдаёт лид ПЛОСКО
+// на верхнем уровне ({ id, pipeline_id, status_id, ... }), а _embedded содержит только { tags: [...] }.
+// Старый extractLead читал _embedded.leads[0] → всегда null → фильтр никогда не активировался.
+describe('resolver: форма ответа amo v4 (регрессия H2)', () => {
+  it('плоский лид на верхнем уровне (реальный GET /api/v4/leads/{id}) → резолв проходит', async () => {
+    getMock.mockResolvedValue({ data: BASE_LEAD }); // без _embedded вообще
+
+    const result = await resolveTargets('42661594');
+
+    expect(targetUsersMock).toHaveBeenCalledWith(10722265);
+    expect(result?.cfg.pipeline_id).toBe(7);
+    expect(result?.targetIds).toEqual(new Set([10722265, 10136549]));
+  });
+
+  it('плоский лид + _embedded.tags (точная PROD-форма: tags есть, leads НЕТ) → резолв проходит', async () => {
+    getMock.mockResolvedValue({ data: { ...BASE_LEAD, _embedded: { tags: [{ id: 1, name: 'x' }] } } });
+
+    const result = await resolveTargets('42661594');
+
+    expect(result).not.toBeNull();
+    expect(targetUsersMock).toHaveBeenCalledOnce();
+  });
+
+  it('id приходит строкой в плоском ответе → всё равно извлекается', async () => {
+    getMock.mockResolvedValue({ data: { ...BASE_LEAD, id: String(BASE_LEAD.id) } });
+
+    const result = await resolveTargets('42661594');
+
+    expect(result).not.toBeNull();
+  });
+
+  it('ответ без объекта лида (только _links/ошибка-обёртка) → null, не бросает', async () => {
+    getMock.mockResolvedValue({ data: { _links: { self: {} } } });
+
+    await expect(resolveTargets('42661594')).resolves.toBeNull();
+    expect(targetUsersMock).not.toHaveBeenCalled();
+  });
+
+  it('плоский лид без pipeline_id (поле не пришло) → null по гейту воронок', async () => {
+    const { pipeline_id: _omit, ...noPipeline } = BASE_LEAD;
+    getMock.mockResolvedValue({ data: noPipeline });
+
+    await expect(resolveTargets('42661594')).resolves.toBeNull();
+    expect(targetUsersMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('extractStfLead: seam извлечения снапшота', () => {
+  it('плоская форма → сам объект', () => {
+    const lead = extractStfLead({ id: 1, pipeline_id: 7, status_id: 11 });
+    expect(lead?.status_id).toBe(11);
+  });
+
+  it('HAL-форма _embedded.leads[0] → вложенный лид (совместимость со списочными ответами)', () => {
+    const lead = extractStfLead({ _embedded: { leads: [{ id: 2, status_id: 5 }] } });
+    expect(lead?.id).toBe(2);
+  });
+
+  it('пусто/null/чужая форма → null', () => {
+    expect(extractStfLead(null)).toBeNull();
+    expect(extractStfLead(undefined)).toBeNull();
+    expect(extractStfLead({})).toBeNull();
+    expect(extractStfLead({ _embedded: {} })).toBeNull();
   });
 });

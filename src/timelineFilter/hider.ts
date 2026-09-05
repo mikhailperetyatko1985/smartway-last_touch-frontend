@@ -126,13 +126,15 @@ export function unhideAll(listEl: Element): void {
 }
 
 export interface IStfProcessResult {
+  // filtered — реально скрыто; allShown — сколько СКРОЕТСЯ при повторном применении фильтра
+  // (dry-run classify без изменений DOM) — счётчик кнопки «Скрыть (N)» (§5.4).
   hiddenCount: number;
   totalWrappers: number;
   mode: 'filtered' | 'allShown';
 }
 
 // processList (план §5.5): полный проход по list.children → classify+apply, затем pass по разделителям.
-// В allShown — только пересчёт счётчика без скрытий (§5.4). Идемпотентно.
+// В allShown — снятие скрытий + пересчёт «перспективного» счётчика без новых скрытий (§5.4). Идемпотентно.
 export function processList(
   listEl: Element,
   cfg: IFunnelFilterSettings,
@@ -144,12 +146,17 @@ export function processList(
   if (mode === 'allShown') {
     unhideAll(listEl);
     let totalWrappers = 0;
+    let prospectiveHiddenCount = 0;
     for (let i = 0; i < children.length; i++) {
-      if (isEventWrapper(children[i])) {
-        totalWrappers++;
+      if (!isEventWrapper(children[i])) {
+        continue;
+      }
+      totalWrappers++;
+      if (classify(children[i], cfg, targetIds) === 'hide') {
+        prospectiveHiddenCount++; // «Скрыть (N)»: сколько уйдёт в скрытие при возврате в filtered
       }
     }
-    return { hiddenCount: 0, totalWrappers, mode };
+    return { hiddenCount: prospectiveHiddenCount, totalWrappers, mode };
   }
 
   const hiddenCount = processWrappers(listEl, cfg, targetIds);

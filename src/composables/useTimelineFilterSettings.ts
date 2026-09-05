@@ -166,8 +166,8 @@ export function useTimelineFilterSettings() {
     try {
       isAdmin.value = (await api.privilegesApi.list()).is_user_admin;
     } catch {
-      // права не получены — консервативно: admin-only контролы не показываем
-      isAdmin.value = false;
+      // права не получены — оставляем null («неизвестно»): секция покажет причину отсутствия кнопки,
+      // admin-only контролы при этом консервативно скрыты (isAdmin === true не выполнится)
     }
   };
 
@@ -382,6 +382,11 @@ export function useTimelineFilterSettings() {
 
     try {
       await api.timelineTargetUsersApi.startSync();
+      // оптимистичное состояние до первого тика polling (~2.5 с): last_synced_at/error сохраняем
+      syncStatus.value = {
+        ...(syncStatus.value ?? { state: 'idle', last_synced_at: null, error: null }),
+        state: 'queued',
+      };
     } catch (e) {
       if (e instanceof TimelineTargetUsersError && e.code === 'already_running') {
         // синк уже выполняется — без ошибки, сразу в polling отслеживания

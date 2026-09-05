@@ -2,10 +2,20 @@ import axios from 'axios';
 import { IFunnelFilterSettings } from 'interfaces/ITimelineFilterSettings';
 import { loadTimelineFilterSettings } from './settingsProvider';
 import { loadTargetUsers } from './targetUsersProvider';
+import { pushStfDiagnostic } from './canary';
 
 // Расчёт целевых менеджеров (план §5.2): единственный прямой amoCRM-запрос фильтра —
 // GET /api/v4/leads/{id} через тот же транспорт, что и AmoPipelineApi/AmoManagerApi
 // (axios на subdomain аккаунта, относительный путь). Дальше — только наш backend (seam loadTargetUsers).
+
+// Самодиагностика (шаг 1): КАЖДЫЙ выход в null обязан оставлять читаемую причину — console
+// с префиксом [STF] + ring-buffer stf_diagnostics_v1. Пользователь тестирует вживую: на деталке
+// в консоли должно быть видно ТОЧНО где упал резолв (нет настроек / HTTP-код amo / форма ответа /
+// pipeline/status вне конфига / target-users null).
+function stfResolveLog(reason: string, leadId: string | null): void {
+  console.info(`[STF] ${reason}`);
+  pushStfDiagnostic(`resolve ${leadId ?? '?'}: ${reason}`, leadId);
+}
 
 export interface IStfResolution {
   cfg: IFunnelFilterSettings;
@@ -36,6 +46,34 @@ interface ILeadsHalResponse {
   _embedded?: { leads?: ILeadSnapshot[] } | null;
 }
 
+// КОРНЕВАЯ ПРИЧИНА несовпадения формы ответа (H2, подтверждено живым ответом PROD amo v4):
+// GET /api/v4/leads/{id} отдаёт лид ПЛОСКО на верхнем уровне — { id, pipeline_id, status_id, ... },
+// а _embedded содержит ТОЛЬКО { tags: [...] } (без leads[]). Плоская форма — у endpoint'а ОДНОГО лида;
+// HAL-обёртка _embedded.leads[] — у СПИСОКОВЫХ запросов. Читали только _embedded.leads[0] → лид всегда
+// null → гейты не проходили → фильтр никогда не активировался («виджет игнорирует деталку»).
+type IStfLeadSource = Record<string, unknown> | null | undefined;
+
+function isFlatLead(source: IStfLeadSource): boolean {
+  if (!source || typeof source !== 'object') {
+    return false;
+  }
+  // Плоский лид: числовой id + хотя бы одно из полей снапшота на верхнем уровне
+  return (typeof source.id === 'number' || /^\d+$/.test(String(source.id ?? '')))
+    && ('pipeline_id' in source || 'status_id' in source);
+}
+
+// Извлекает снапшот лида из ответа amo v4: плоская форма одного лида ИЛИ HAL _embedded.leads[0].
+export function extractStfLead(data: unknown): ILeadSnapshot | null {
+  const root = (data ?? {}) as Record<string, unknown>;
+
+  if (isFlatLead(root)) {
+    return root as unknown as ILeadSnapshot; // реальный GET /api/v4/leads/{id}
+  }
+
+  const embedded = (root as ILeadsHalResponse)._embedded;
+  return embedded?.leads?.[0] ?? null; // списочная HAL-форма (совместимость)
+}
+
 // Единый кэш резолва на leadId на время жизни маунта (§5.2): SPA-переход между карточками —
 // новый leadId через render()/страховочный интервал (п. 5.1.2). Отрицательные результаты НЕ
 // кешируем: при недоступном backend/неактивной стадии повторный резолв при следующем render'е
@@ -53,11 +91,6 @@ export function getCurrentLeadId(): string | null {
   }
   const match = window.location.pathname.match(/\/leads\/detail\/(\d+)/);
   return match ? match[1] : null;
-}
-
-function extractLead(data: unknown): ILeadSnapshot | null {
-  const embedded = (data as ILeadsHalResponse | null)?._embedded;
-  return embedded?.leads?.[0] ?? null;
 }
 
 // mode=custom: user_id из кастомного поля; пусто/NaN/отсутствующее поле → 0 (fallback на базового, ТЗ Q1)
@@ -90,27 +123,53 @@ export async function resolveTargets(leadId: string): Promise<IStfResolution | n
 
   const settings = await loadTimelineFilterSettings();
   const funnels = settings?.settings?.funnels;
-  if (!funnels || funnels.length === 0) {
+  if (!settings || !funnels || funnels.length === 0) {
+    stfResolveLog(
+      'no settings: backend недоступен (нет ответа/кеша) либо funnels пустые — фильтр выключен, quiet',
+      leadId,
+    );
     return null; // виджет выключен везде (§3)
   }
 
   let lead: ILeadSnapshot | null = null;
   try {
     const response = await axios.get<ILeadsHalResponse>(`${LEADS_URL}/${leadId}`);
-    lead = extractLead(response.data);
-  } catch {
+    lead = extractStfLead(response.data);
+  } catch (e) {
+    // HTTP-код из axios-ошибки — чтобы в консоли было видно, упал запрос на 403/404/CORS или по сети (шаг 1)
+    const status = (e as { response?: { status?: number } })?.response?.status;
+    stfResolveLog(
+      `amo v4 GET ${LEADS_URL}/${leadId} FAILED${status ? `: HTTP ${status}` : ': network/CORS/no-status'} — тихая деградация`,
+      leadId,
+    );
     return null; // сеть/авторизация — тихая деградация (R9)
   }
 
   if (!lead) {
+    stfResolveLog(
+      `amo v4 response without lead object for ${leadId} (неожиданная форма ответа: ни плоского лида, ни _embedded.leads[])`,
+      leadId,
+    );
     return null;
   }
 
   const cfg = funnels.find((funnel) => funnel.pipeline_id === lead.pipeline_id);
-  if (!cfg || cfg.mode === 'off') {
-    return null; // сделка вне настроенных воронок или воронка выключена
+  if (!cfg) {
+    stfResolveLog(
+      `pipeline gate: lead pipeline_id=${String(lead.pipeline_id ?? 'undefined')} не найден в настроенных воронках [${funnels.map((f) => f.pipeline_id).join(', ')}]`,
+      leadId,
+    );
+    return null; // сделка вне настроенных воронок (pipeline_id undefined → тоже сюда: топ-кандидат H2)
+  }
+  if (cfg.mode === 'off') {
+    stfResolveLog(`funnel ${cfg.pipeline_id} mode=off — фильтр выключен для этой воронки`, leadId);
+    return null; // воронка выключена
   }
   if (typeof lead.status_id !== 'number' || !cfg.status_ids.includes(lead.status_id)) {
+    stfResolveLog(
+      `status gate: lead status_id=${String(lead.status_id ?? 'undefined')} вне cfg.status_ids [${cfg.status_ids.join(', ')}]`,
+      leadId,
+    );
     return null; // сделка вне активных стадий — виджет молчит (§3: без стадии не работает)
   }
 
@@ -123,11 +182,18 @@ export async function resolveTargets(leadId: string): Promise<IStfResolution | n
   }
 
   if (!Number.isFinite(responsibleId) || responsibleId <= 0) {
+    stfResolveLog(
+      `no responsible user: responsible_user_id=${String(lead.responsible_user_id ?? 'null')} (custom_field не дал id)`
+      , leadId);
     return null; // ни базового, ни кастомного ответственного — фильтровать не по кому
   }
 
   const targetUsers = await loadTargetUsers(responsibleId);
   if (!targetUsers) {
+    stfResolveLog(
+      `target-users null for responsible ${responsibleId} (409 not_synced / backend недоступен без кеша) — quiet`,
+      leadId,
+    );
     return null; // 409 not_synced / backend недоступен без кеша → тихий выход (виджет молчит)
   }
 
@@ -140,5 +206,9 @@ export async function resolveTargets(leadId: string): Promise<IStfResolution | n
 
   const resolution: IStfResolution = { cfg, targetIds };
   resolveCache.set(leadId, resolution);
+  stfResolveLog(
+    `RESOLVED lead ${leadId}: funnel ${cfg.pipeline_id} (mode=${cfg.mode}), status ${lead.status_id}, responsible ${responsibleId}, targets [${[...targetIds].join(', ')}]`,
+    leadId,
+  );
   return resolution;
 }

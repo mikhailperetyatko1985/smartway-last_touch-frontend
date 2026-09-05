@@ -185,33 +185,33 @@ describe('hider: processList — полный проход, разделител
     expect(processList(list, CFG, TARGET_B, 'filtered')).toEqual(before);
   });
 
-  it('allShown: все wrapper-ы и разделители видны, счётчик 0; возврат в filtered — полный перепроход', () => {
+  it('allShown: всё видно, счётчик = перспективное число скрытий; возврат в filtered — полный перепроход', () => {
     const list = buildList([
       makeSeparator(),
-      fixtureFragment('note_no_author.html'),
+      fixtureFragment('note_no_author.html'), // hide (no-author)
       makeSeparator(),
-      fixtureFragment('call_in_out_with_author.html'),
+      fixtureFragment('call_in_out_with_author.html'), // show (target-match)
     ]);
 
     const filteredResult = processList(list, CFG, TARGET_B, 'filtered');
     expect(filteredResult.hiddenCount).toBe(1);
 
-    // Кнопка «Показать все события» (handleToggle → allShown)
+    // Кнопка «Показать скрытые» (handleToggle → allShown): скрытия сняты, счётчик — сколько СКРОЕТСЯ при возврате
     unhideAll(list);
     const allShownResult = processList(list, CFG, TARGET_B, 'allShown');
-    expect(allShownResult.hiddenCount).toBe(0);
+    expect(allShownResult.hiddenCount).toBe(1); // «Скрыть (1)»: note_no_author снова уйдёт в скрытие
     for (const child of Array.from(list.children)) {
       expect((child as Element).dataset.stfHidden).toBeUndefined();
       expect((child as Element).style.display).not.toBe('none');
     }
 
-    // observer в allShown не фильтрует: новые порции приходят — только пересчёт счётчика без скрытий
+    // observer в allShown не фильтрует: новые порции приходят — только пересчёт перспективного счётчика без скрытий
     list.appendChild(fixtureFragment('note_no_author.html'));
     const appended = processList(list, CFG, TARGET_B, 'allShown');
-    expect(appended.hiddenCount).toBe(0);
+    expect(appended.hiddenCount).toBe(2); // «Скрыть (2)» — новый no-author-событие попадёт в фильтр
     expect((list.lastElementChild as Element).dataset.stfHidden).toBeUndefined();
 
-    // Кнопка «Скрыть нерелевантные» — полный перепроход восстанавливает исходные вердикты
+    // Кнопка «Скрыть» — полный перепроход восстанавливает исходные вердикты
     const back = processList(list, CFG, TARGET_B, 'filtered');
     expect(back.hiddenCount).toBe(2);
   });

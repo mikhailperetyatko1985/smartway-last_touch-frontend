@@ -1,12 +1,13 @@
 import { IWidget } from 'interfaces/IWidget';
 import { getCurrentLeadId, clearStfResolveCache, resolveTargets } from './resolver';
 import type { IStfResolution } from './resolver';
-import { processList, unhideAll } from './hider';
-import { ensureToggleButton, updateToggleButton, STF_TOGGLE_BTN_ID } from './button';
-import type { STFViewMode } from './button';
+import { processList, unhideAll, isEventWrapper } from './hider';
+import { collectAuthors } from './classifier';
+import { ensureToggleButton, updateToggleButton, resolveToggleButtonHost, STF_TOGGLE_BTN_ID } from './button';
+import type { STFViewMode, IStfButtonHost } from './button';
 import { createListObserver } from './observer';
 import type { IStfListObserver } from './observer';
-import { checkStfAnchors, stfCanaryOnProcess, stfCanaryIsDisabled, stfCanaryDeactivate } from './canary';
+import { checkStfAnchors, stfCanaryOnProcess, stfCanaryIsDisabled, stfCanaryDeactivate, pushStfDiagnostic } from './canary';
 import {
   STF_CACHE_TTL_MS,
   STF_SETTINGS_CACHE_KEY,
@@ -35,10 +36,11 @@ interface IAmoCrmData {
 const LEAD_ENTITY = 'leads';
 const MARKED_VALUE = 'mounted';
 const SAFETY_TICK_MS = 1000; // §5.1.2: страховка на случай перерендера блока истории без повторного render()
-const SCROLLER_SELECTOR = '.notes-wrapper__scroller-inner';
+const BOOTSTRAP_TICK_MS = 500; // H1-фикс: наблюдатель URL, НЕ зависящий от callback'а amo render()
 const NOTES_LIST_SELECTOR = '.notes-wrapper__notes.js-notes';
 
 type StfPhase = 'idle' | 'resolving' | 'active' | 'inactive' | 'disabled';
+type StfMountTrigger = 'render' | 'url-watch';
 
 interface IStfRuntime {
   phase: StfPhase;
@@ -51,6 +53,9 @@ interface IStfRuntime {
   hiddenCount: number;
   epoch: number; // защита от гонки: результат резолва устаревшей карточки отбрасывается
   tickTimer: ReturnType<typeof setInterval> | null;
+  authorLogLeadId: string | null; // H4-диагностика: одноразовый лог собранных авторов на карточку
+  buttonHostKind: string | null; // вид хоста кнопки (tab-bar/toolbar-row/legacy-scroller) — для лога при смене
+  hostMissingLoggedLeadId: string | null; // диагностика «хост не найден» — не чаще раза на карточку
 }
 
 const runtime: IStfRuntime = {
@@ -64,7 +69,15 @@ const runtime: IStfRuntime = {
   hiddenCount: 0,
   epoch: 0,
   tickTimer: null,
+  authorLogLeadId: null,
+  buttonHostKind: null,
+  hostMissingLoggedLeadId: null,
 };
+
+// Глобальный наблюдатель URL (H1-фикс): один интервал на жизнь страницы. render() amoCRM — НЕ надёжный
+// триггер (SPA-переход на деталку из списка может не вызвать render(), либо прийти со stale AMOCRM.data),
+// поэтому наличие /leads/detail/{id} в pathname — единственный источник истины «мы на деталке сделки».
+let bootstrapTimer: ReturnType<typeof setInterval> | null = null;
 
 function getAmoCrmData(widget: IWidget): IAmoCrmData | null {
   const amocrm = widget.amocrm as { data?: IAmoCrmData } | null;
@@ -84,17 +97,65 @@ export function mountTimelineFilter(widget: IWidget): void {
     return;
   }
 
+  startFromUrl('render');
+}
+
+// H1-фикс: старт модуля по URL, НЕ зависящий от свежего AMOCRM.data. render() может не прийти
+// (SPA) или прийти со stale data — pathname уже проверен вызывающим (mountTimelineFilter через
+// isLeadCard / bootstrapFromUrl через getCurrentLeadId), здесь остаётся только canary-гейт и старт.
+function startFromUrl(trigger: StfMountTrigger): void {
   if (stfCanaryIsDisabled()) {
     // Этап 5: canary деактивировал модуль на TTL (24 ч), в т.ч. после перезагрузки страницы —
     // persisted-флаг читается ДО любой mount-работы, активация не стартует, тишина.
     return;
   }
 
-  markMounted();
+  markMounted(trigger);
 
   const leadId = getCurrentLeadId();
-  onLeadIdChanged(leadId); // новая карточка → (re)резолв; та же активная карточка → no-op
+  onLeadIdChanged(leadId); // новая карточка → (re)резолв; та же активная карточка → no-op (идемпотентность)
   ensureTickStarted();     // §5.1.2: страховочный интервал переживает SPA-переходы и пересборки
+}
+
+// H1-фикс: лёгкий глобальный наблюдатель смены URL — дешёвый периодический тик (500 мс) по pathname,
+// надёжнее popstate/MutationObserver для SPA amoCRM (pushState без событий). На /leads/detail/{id} —
+// старт (идемпотентно по leadId), на уходе — teardown. Один интервал на жизнь страницы: нет утечек и
+// двойных инстансов; после canary-деактивации тишина держится до TTL, затем «свежий старт» сам.
+export function startStfBootstrap(): void {
+  if (bootstrapTimer !== null) {
+    return; // идемпотентность: повторно не заводим
+  }
+
+  console.info(`[STF] bootstrap armed: URL watcher every ${BOOTSTRAP_TICK_MS}ms (render-independent)`);
+  bootstrapFromUrl(); // немедленный первый проход — пользователь мог зайти на деталку до инициализации
+  bootstrapTimer = setInterval(bootstrapFromUrl, BOOTSTRAP_TICK_MS);
+}
+
+export function stopStfBootstrap(): void {
+  if (bootstrapTimer !== null) {
+    clearInterval(bootstrapTimer);
+    bootstrapTimer = null;
+  }
+}
+
+function bootstrapFromUrl(): void {
+  const leadId = getCurrentLeadId();
+  if (leadId === null) {
+    handleLeaveLeadDetail(); // не на деталке сделки — quiet (no-op, когда модуль ещё idle)
+    return;
+  }
+
+  // Устойчивые состояния для ЭТОЙ карточки — повторный старт не нужен: без этой защиты каждый тик
+  // в phase='inactive' запускал бы новый резолв (amo v4 GET на каждом тике = сетевой спам). Повторные
+  // резолвы по смене настроек/этапа по-прежнему приходят через render() amo — семантика §5.2 сохранена.
+  if ((runtime.phase === 'active' && runtime.activeLeadId === leadId) || runtime.phase === 'resolving') {
+    return;
+  }
+  if (runtime.phase === 'inactive' && runtime.leadId === leadId) {
+    return; // уже резолвили и в quiet — ждём смену URL или render() amo
+  }
+
+  startFromUrl('url-watch');
 }
 
 // Ситуационная страховка (подэтап F-2): render() пришёл с is_card=false (карточку закрыли,
@@ -110,15 +171,15 @@ function handleLeaveLeadDetail(): void {
   onLeadIdChanged(null);
 }
 
-function markMounted(): void {
+function markMounted(trigger: StfMountTrigger): void {
   const root = document.documentElement;
 
   if (root.dataset.stfTimelineFilter) {
-    return; // идемпотентность: маркер уже стоит (render() вызывается при каждом перерисовывании)
+    return; // идемпотентность: маркер уже стоит (render()/bootstrap вызываются при каждом перерисовывании)
   }
 
   root.dataset.stfTimelineFilter = MARKED_VALUE;
-  console.log('[STF] timeline-filter: lead card detected, marker set');
+  console.log(`[STF] timeline-filter: lead card detected (trigger=${trigger}), marker set`);
 }
 
 function setPhase(phase: StfPhase): void {
@@ -151,7 +212,8 @@ function ensureTickStarted(): void {
 // разрешает повторный резолв: перерисовка amo при смене этапа вызывает render() → фильтр обязан
 // пересчитать актуальность по текущему status_id (§5.2).
 function onLeadIdChanged(leadId: string | null): void {
-  const sameCard = runtime.leadId === leadId;
+  const prevLeadId = runtime.leadId;
+  const sameCard = prevLeadId === leadId;
   if (sameCard && ((runtime.phase === 'active' && runtime.activeLeadId === leadId) || runtime.phase === 'resolving')) {
     return; // активная/в-полёте карточка уже обработана
   }
@@ -162,6 +224,12 @@ function onLeadIdChanged(leadId: string | null): void {
   runtime.leadId = leadId;
 
   if (!leadId) {
+    // H3-диагностика: различаем «мы УШЛИ с деталки (URL сменился/карточка закрыта)» от canary-провала
+    // «не нашли DOM-якоря» — в ring-buffer попадает явная причина teardown'а, а не тишина.
+    if ((runtime.phase === 'active' || runtime.phase === 'resolving') && prevLeadId !== null) {
+      console.info(`[STF] left lead detail (lead ${prevLeadId}) — teardown, quiet mode (URL change, not anchors)`);
+      pushStfDiagnostic('leave lead detail: teardown on URL change (NOT an anchor failure)', prevLeadId);
+    }
     teardownRuntime();
     setPhase('inactive'); // покинули деталку сделки — тихий режим
     return;
@@ -209,16 +277,18 @@ function activate(resolution: IStfResolution): void {
 
 // Кнопка + observer + первый processList (§5.4/§5.5). Идемпотентно: вызывается из activate()
 // и с каждого тика; если amo уже пересобрал список (list-узел заменён) — переподключаемся.
+// Хост кнопки НЕ зависит от якорей списка: ряд тулбара (#history_settings / .feed-compose) может
+// появиться раньше scroller'а или на аккаунте, где старый скролл-якорь отсутствует (симптом
+// «кнопка не видна»): инъекция в строку табов идёт независимо, observer ждёт список.
 function ensureAttached(): boolean {
-  const scrollerInner = document.querySelector(SCROLLER_SELECTOR);
-  const listEl = document.querySelector(NOTES_LIST_SELECTOR) as Element | null;
+  paintToggleButtonHost();
 
-  if (!scrollerInner || !listEl) {
+  const listEl = document.querySelector(NOTES_LIST_SELECTOR) as Element | null;
+  if (!listEl) {
     return false; // блок «История» ещё не отрендерился (асинхронно) — тик опрашивает дальше
   }
 
   runtime.listEl = listEl;
-  ensureToggleButton(scrollerInner, listEl, handleToggle);
 
   const needsReprocess = !runtime.observer || runtime.observer.target !== listEl;
   if (needsReprocess) {
@@ -227,6 +297,35 @@ function ensureAttached(): boolean {
   }
 
   return true;
+}
+
+// Разрешение хоста кнопки + диагностика вживую (задача «кнопка не видна»): при смене вида хоста —
+// console.info с точным якорем, при отсутствии ВСЕХ кандидатов на активной карточке — console.warn +
+// diagnostic в ring-buffer (не чаще раза на карточку: страховочный тик 1 с не спамит).
+function paintToggleButtonHost(): void {
+  const host: IStfButtonHost | null = resolveToggleButtonHost();
+
+  if (!host) {
+    if (runtime.phase === 'active' && runtime.hostMissingLoggedLeadId !== runtime.leadId) {
+      console.warn('[STF] toggle button host: NOT FOUND — no #history_settings / .feed-compose / '
+        + '.notes-wrapper__scroller-inner in DOM; timeline block may not be rendered yet or markup changed');
+      pushStfDiagnostic('toggle button host not found (tab-bar/toolbar-row/scroller all missing)', runtime.leadId);
+      runtime.hostMissingLoggedLeadId = runtime.leadId;
+    }
+    if (runtime.buttonHostKind !== null) {
+      console.info(`[STF] toggle button host: ${runtime.buttonHostKind} → gone (DOM re-render, waiting)`);
+      runtime.buttonHostKind = null; // возврат хоста залоггируется заново
+    }
+    return;
+  }
+
+  if (host.kind !== runtime.buttonHostKind) {
+    const containerCls = String(host.container.className).slice(0, 60);
+    console.info(`[STF] toggle button host: ${host.kind} (${host.container.tagName.toLowerCase()}${containerCls ? '.' + containerCls : ''})`);
+    runtime.buttonHostKind = host.kind;
+  }
+
+  ensureToggleButton(host, handleToggle);
 }
 
 function attachObserver(listEl: Element): void {
@@ -259,6 +358,42 @@ function processAndPaint(): void {
   const result = processList(listEl, resolution.cfg, resolution.targetIds, runtime.viewMode);
   runtime.hiddenCount = result.hiddenCount;
   updateToggleButton(findButton(), runtime.viewMode, runtime.hiddenCount);
+
+  logAuthorDiagnosticsOnce(); // H4: одноразово на карточку — лог собранных авторов vs targetIds
+}
+
+// H4-диагностика (одноразовая на leadId): если amo перестала отдавать числовые id авторов в нужных
+// селекторах, collectAuthors даст пусто → ВСЕ события с авторами уйдут в hide (или hide_no_author),
+// и симптом будет «фильтр всё прячет/ничего не делает». Логируем фактические authorIds/targetIds при
+// активации: по строке [STF] timeline DOM видно, нашла ли сборка авторов реальную разметку.
+function logAuthorDiagnosticsOnce(): void {
+  const listEl = runtime.listEl;
+  if (!listEl || !runtime.leadId || runtime.authorLogLeadId === runtime.leadId) {
+    return; // ещё не отрендерился / уже залогировано для этой карточки
+  }
+  runtime.authorLogLeadId = runtime.leadId;
+
+  let wrappers = 0;
+  const authors = new Set<number>();
+  for (const child of Array.from(listEl.children)) {
+    if (!isEventWrapper(child)) {
+      continue;
+    }
+    wrappers++;
+    collectAuthors(child).forEach((id) => authors.add(id));
+  }
+
+  const targetIds = runtime.resolution?.targetIds ?? new Set<number>();
+  console.info(
+    `[STF] timeline DOM (lead ${runtime.leadId}): ${wrappers} events, `
+    + `authors [${[...authors].join(', ') || '∅'}], targets [${[...targetIds].slice(0, 12).join(', ')}] total=${targetIds.size}`,
+  );
+
+  if (wrappers > 0 && authors.size === 0) {
+    console.warn('[STF] NO numeric author ids collected from timeline DOM — amo markup may have changed '
+      + '(check .feed-note__amojo-user[data-id] / div.n-avatar[id])');
+    pushStfDiagnostic('no numeric author ids in timeline DOM (markup change?)', runtime.leadId);
+  }
 }
 
 function stopTick(): void {
@@ -347,6 +482,9 @@ function teardownRuntime(): void {
   runtime.listEl = null;
   runtime.hiddenCount = 0;
   runtime.viewMode = 'filtered';
+  runtime.authorLogLeadId = null; // новая карточка — одноразовая H4-диагностика авторов заново
+  runtime.buttonHostKind = null; // диагностика хоста кнопки — заново на следующей карточке
+  runtime.hostMissingLoggedLeadId = null;
 }
 
 // Явный shutdown lifecycle (подэтап F-2): остановка interval/observer/teardown + полный сброс
@@ -355,6 +493,7 @@ function teardownRuntime(): void {
 // вызывается (ограничение минимальной правки проводки) — seam для тестов/обёрток установки.
 export function destroyTimelineFilter(): void {
   stopTick();
+  stopStfBootstrap(); // H1-фикс: наблюдатель URL тоже часть lifecycle (no-op, если не запущен)
   teardownRuntime(); // observer + unhideAll(старый список) + кнопка + сброс полей runtime
   clearStfResolveCache();
 
@@ -364,17 +503,18 @@ export function destroyTimelineFilter(): void {
 }
 
 // --- Публичные seams и экспорты модуля (подэтапы D/E) ---
+// startStfBootstrap/stopStfBootstrap — объявлены выше как export function (H1-фикс: наблюдатель URL).
 export { loadTimelineFilterSettings, saveTimelineFilterSettings } from './settingsProvider';
 export { loadTargetUsers } from './targetUsersProvider';
 export { classify, collectAuthors, isSystem, isPinned, toIntOrNull } from './classifier';
 export type { STFVerdict } from './classifier';
 export { hideNode, showNode, processWrappers, processSeparators, unhideAll, processList } from './hider';
 export type { IStfProcessResult } from './hider';
-export { ensureToggleButton, updateToggleButton, STF_TOGGLE_BTN_ID } from './button';
-export type { STFViewMode } from './button';
+export { ensureToggleButton, updateToggleButton, resolveToggleButtonHost, STF_TOGGLE_BTN_ID } from './button';
+export type { STFViewMode, IStfButtonHost, STFButtonHostKind } from './button';
 export { createListObserver, STF_DEBOUNCE_MS } from './observer';
 export type { IStfListObserver } from './observer';
-export { resolveTargets, getCurrentLeadId, clearStfResolveCache } from './resolver';
+export { resolveTargets, getCurrentLeadId, clearStfResolveCache, extractStfLead } from './resolver';
 export type { IStfResolution, ILeadSnapshot } from './resolver';
 
 // Тестовые/сервисные утилиты кеша (Этапы C/D)

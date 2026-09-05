@@ -2,6 +2,7 @@ import { useAmoCrmStore } from 'stores/useAmoCrmStore';
 import { IFilterSettings, ITimelineFilterSettingsResponse } from 'interfaces/ITimelineFilterSettings';
 import { TimelineFilterSettingsError } from 'drivers/backend/TimelineFilterSettingsApi';
 import { readStfSettingsCache, writeStfSettingsCache, stfDeduplicate } from './cache';
+import { pushStfDiagnostic } from './canary';
 
 const DEDUP_KEY = 'timeline-filter:settings';
 
@@ -29,10 +30,17 @@ export async function loadTimelineFilterSettings(): Promise<ITimelineFilterSetti
     const response = await stfDeduplicate(DEDUP_KEY, () => api.timelineFilterSettingsApi.get());
     writeStfSettingsCache(response);
     return response;
-  } catch {
+  } catch (e) {
+    // Шаг 0/1: сетевой шаг резолва обязан оставлять след — иначе «фильтр не работает» неоткуда
+    // отличить от «backend недоступен». Запрос идёт через $authorizedAjax на env.host (см. store).
+    const detail = e instanceof TimelineFilterSettingsError ? `${e.code}: ${e.message}` : String(e);
     if (cached) {
+      console.warn(`[STF] settings: backend request failed (${detail}) — served stale cache`);
+      pushStfDiagnostic(`settings: backend failed (${detail}), served stale cache`, null);
       return cached.response; // stale-while-revalidate: отдаём устаревшее тихо
     }
+    console.warn(`[STF] settings: backend request failed (${detail}) and no cache — quiet mode`);
+    pushStfDiagnostic(`settings: backend failed (${detail}), no cache → null (quiet)`, null);
     return null;
   }
 }

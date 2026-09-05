@@ -17,6 +17,8 @@ import LastTouchSettingsModal from 'components/modals/LastTouchSettingsModal.vue
 import LastTouchInteractionsModal from 'components/modals/LastTouchInteractionsModal.vue';
 // @ts-ignore
 import LastTouchFrequencyModal from 'components/modals/LastTouchFrequencyModal.vue';
+// @ts-ignore
+import TimelineFilterSettingsModal from 'components/modals/TimelineFilterSettingsModal.vue';
 //@ts-ignore
 import UiButton from 'components/base/UiButton.vue';
 import { closeModal, container as WidgetContainerModal, openModal } from 'jenesius-vue-modal';
@@ -27,6 +29,7 @@ const isOpenSetLongLivedModal = ref(false);
 const isOpenLastTouchSettingsModal = ref(false);
 const isOpenLastTouchInteractionsModal = ref(false);
 const isOpenLastTouchFrequencyModal = ref(false);
+const isOpenTimelineFilterModal = ref(false);
 
 const { getApi, showError } = useAmoCrmStore();
 const pendingStatus = reactive({
@@ -139,6 +142,23 @@ watch(
     },
 );
 
+watch(
+    () => isOpenTimelineFilterModal.value,
+    async (value) => {
+        if (!value) return;
+        const modal = await openModal(TimelineFilterSettingsModal, {});
+        modal.on('close', () => {
+            closeModal();
+        });
+        modal.on('apply', () => {
+            closeModal();
+        });
+        modal.onclose = () => {
+            isOpenTimelineFilterModal.value = false;
+        };
+    },
+);
+
 getSettings();
 
 </script>
@@ -168,6 +188,7 @@ getSettings();
         <ui-button label="Настройки последнего касания" @click="isOpenLastTouchSettingsModal = true" />
         <ui-button label="Частота сбора данных" @click="isOpenLastTouchFrequencyModal = true" />
         <ui-button label="История касаний" @click="isOpenLastTouchInteractionsModal = true" />
+        <ui-button label="Фильтр таймлайна сделки" @click="isOpenTimelineFilterModal = true" />
         <widget-container-modal :class="$style.modalContainer" />
     </ui-flex-container>
 </template>

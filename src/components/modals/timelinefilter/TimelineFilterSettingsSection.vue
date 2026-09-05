@@ -20,7 +20,15 @@ const {
     setHideFlag, getOptionsForFunnel, startSyncCycle,
 } = useTimelineFilterSettings();
 
+const emit = defineEmits(['saved']);
+
 onMounted(load);
+
+// «Сохранить»: PUT внутри composable; при успехе уведомляем обёртку-модалку (apply → закрытие)
+const onSave = async (): Promise<void> => {
+    const ok = await save();
+    if (ok) emit('saved');
+};
 
 const MODES: { value: IFunnelFilterMode; label: string }[] = [
     { value: 'off', label: 'Выключено' },
@@ -113,6 +121,13 @@ const onHideFlagChange = (index: number) => (key: (typeof HIDE_FLAGS)[number]['k
                         :disabled="isSyncBusy"
                         @click="startSyncCycle()"
                     />
+                </div>
+
+                <!-- кнопка скрыта: объясняем причину (нет прав / права не определены), а не молчим -->
+                <div v-if="isAdmin !== true && !isLoading" :class="$style.adminOnlyNote">
+                    {{ isAdmin === null
+                        ? 'Не удалось определить права текущего пользователя. Если вы администратор аккаунта, обновите страницу.'
+                        : 'Синхронизация сотрудников и групп доступна только администраторам аккаунта.' }}
                 </div>
 
                 <div v-if="needsSyncHint && !isSyncBusy && !isLoading" :class="$style.infoBanner">
@@ -268,7 +283,7 @@ const onHideFlagChange = (index: number) => (key: (typeof HIDE_FLAGS)[number]['k
                         <ui-button
                             :label="isSaving ? 'Сохранение...' : 'Сохранить'"
                             :disabled="isSaving"
-                            @click="save()"
+                            @click="onSave"
                         />
                     </div>
                     <div v-else :class="$style.forbiddenNote">
@@ -284,7 +299,6 @@ const onHideFlagChange = (index: number) => (key: (typeof HIDE_FLAGS)[number]['k
 .root {
     width: 100%;
     box-sizing: border-box;
-    padding-top: 16px;
 }
 
 .title {
@@ -345,6 +359,17 @@ const onHideFlagChange = (index: number) => (key: (typeof HIDE_FLAGS)[number]['k
     margin-top: 8px;
     font-size: 12px;
     color: #21a6d8;
+}
+
+.adminOnlyNote {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #ad6800;
+    line-height: 1.4;
 }
 
 .emptyHint {

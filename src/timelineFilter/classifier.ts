@@ -7,6 +7,10 @@ export type STFVerdict = 'show' | 'hide';
 
 const AUTHOR_CHIP_SELECTOR = '.feed-note__amojo-user[data-id]';
 const AVATAR_SELECTOR = 'div.n-avatar[id]';
+// H4-устойчивость: в разметке amo есть и span.control-user_state[data-id] (вложенный дубль чипа,
+// research §6) — как дополнительный источник числового id автора. toIntOrNull отсекает UUID/base62;
+// Set гасит дубли с основным чипом. Если все три источника пусты → диагностика в runtime (index.ts).
+const CONTROL_USER_SELECTOR = 'span.control-user_state[data-id]';
 const SYSTEM_CLASS = 'feed-note-wrapper_system';
 const PINNED_SELECTOR = '.js-note-pinned';
 
@@ -42,6 +46,17 @@ export function collectAuthors(wrapper: Element): Set<number> {
       authors.add(id);
     }
   });
+
+  // H4-устойчивость: третий источник — дубль чипа control-user_state (только если основные пусты,
+  // чтобы не подтягивать «контрольных» пользователей из чужих контекстов при полной разметке)
+  if (authors.size === 0) {
+    wrapper.querySelectorAll(CONTROL_USER_SELECTOR).forEach((el) => {
+      const id = toIntOrNull(el.getAttribute('data-id'));
+      if (id !== null) {
+        authors.add(id);
+      }
+    });
+  }
 
   return authors;
 }

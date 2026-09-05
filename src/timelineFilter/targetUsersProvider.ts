@@ -19,6 +19,8 @@ const { getApi } = useAmoCrmStore();
 export async function loadTargetUsers(responsibleUserId: number): Promise<ITargetUsersResponse | null> {
   const api = getApi.value;
   if (!api) {
+    console.warn('[STF] target-users: API store not initialized — quiet');
+    pushStfDiagnostic('target-users: API store not initialized → null (quiet)', null);
     return null;
   }
 
@@ -45,6 +47,11 @@ export async function loadTargetUsers(responsibleUserId: number): Promise<ITarge
       }
       return cached.data; // stale-while-revalidate: отдаём устаревшее тихо
     }
+
+    // Шаг 1: без кеша ошибка раньше глоталась полностью — теперь причина (409 not_synced / network) видна.
+    const detail = e instanceof TimelineTargetUsersError ? `${e.code}: ${e.message}` : String(e);
+    console.warn(`[STF] target-users: load failed for responsible ${responsibleUserId} (${detail}), no cache → null`);
+    pushStfDiagnostic(`target-users: load failed for responsible ${responsibleUserId} (${detail}), no cache`, null);
     return null;
   }
 }
